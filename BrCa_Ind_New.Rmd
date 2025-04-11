@@ -1,0 +1,299 @@
+---
+title: "Breast Cancer Risk Prediction in Indian Population (New Data)"
+author: "AC/PPC/NC"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Install the required packages and libraries
+```{r, message = FALSE}
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("iCARE")
+library(readstata13)
+library(plotrix)
+library(gdata)
+library(openxlsx)
+library(dplyr)
+library(iCARE)
+library(purrr)
+library(janitor)
+```
+
+#datasets loading
+```{r}
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
+data_old = read.dta13("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Questionnaire_28.04.2017.dta",
+                  generate.factors = TRUE, nonint.factors = TRUE)
+data_new_meta = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/Meta_Data.xlsx")
+data_new_validation = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/Breast\ cancer\ _Validation\ data\ set.xlsx")
+
+#data_covariate_wise
+data_new_alcohol = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_25.09.2023.xlsx")
+data_new_alcohol_exlusive = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_exclusive_07.10.2023.xlsx")
+data_new_alcohol_inclusive = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_inclusive_07.10.2023.xlsx")
+data_new_anthropometry_ank = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Anthropometry/Anthropometry_13072023\ -\ Ankita.xlsx")
+data_new_anthropometry = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Anthropometry/Anthropometry_13072023.xlsx")
+data_new_chewing = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Chewing/Chewing_inclusive_03.07.2024_final.xlsx")
+data_new_demography = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Demographics/Demography_details_12034_17062023.xlsx")
+data_new_FH1 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Family_history_of_cancer/Fam_hist_CA_Br_core_10.08.2023..xlsx")
+data_new_FH = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Family_history_of_cancer/family_history_of_cancer_10.08.2023.xlsx")
+data_new_PMH = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Personal_medical/Personl_medical_history_27.03.2024_final.xlsx")
+data_new_reproductive = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Reproductive/Reproductive_25.07.2023_final.xlsx")
+data_new_residence1 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/Last_5_3_year_RU_05.10.2023.xlsx")
+data_new_residence2 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/Last_5_3_year_state_04.10.2023.xlsx")
+data_new_residence3 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/POB_duration_12.09.2023.xlsx")
+data_new_residence4 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/Residential_birth_current_final_17.06.2023.xlsx")
+data_new_smoking = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Smoking/Smoking_Incl_24.6.2024.xlsx")
+```
+
+#Sample Overlap
+```{r}
+library(VennDiagram)
+library(grid) 
+
+common_ids <- intersect(data_old$id6, data_new_meta$ID)
+#print(common_ids)
+
+venn.plot1 <- draw.pairwise.venn(
+  area1 = length(unique(data_old$id6)),
+  area2 = length(unique(data_new_meta$ID)),
+  cross.area = length(unique(common_ids)),
+  category = c("data_old$id6", "data_new_meta$ID"),
+  fill = c("skyblue", "lightgreen"),
+  alpha = 0.5,
+  cex = 2,
+  cat.cex = 1.5,
+  cat.pos = c(-20, 20)
+)
+
+###################
+
+common_ids <- intersect(data_old$id6, data_new_validation$id6)
+#print(common_ids)
+
+venn.plot2 <- draw.pairwise.venn(
+  area1 = length(unique(data_old$id6)),
+  area2 = length(unique(data_new_validation$id6)),
+  cross.area = length(unique(common_ids)),
+  category = c("data_old$id6", "data_new_validation$ID"),
+  fill = c("skyblue", "lightgreen"),
+  alpha = 0.5,
+  cex = 2,
+  cat.cex = 1.5,
+  cat.pos = c(-20, 20)
+)
+
+####################
+train_data = setdiff(data_new_meta$ID, data_new_validation$id6)
+ref_data = setdiff(data_old$id6, data_new_validation$id6)
+
+common_ids <- intersect(train_data, ref_data)
+#print(common_ids)
+
+venn.plot3 <- draw.pairwise.venn(
+  area1 = length(unique(train_data)),
+  area2 = length(unique(ref_data)),
+  cross.area = length(unique(common_ids)),
+  category = c("train_data", "ref_data"),
+  fill = c("skyblue", "lightgreen"),
+  alpha = 0.5,
+  cex = 2,
+  cat.cex = 1.5,
+  cat.pos = c(-20, 20)
+)
+
+
+
+grid.newpage()
+grid.draw(venn.plot1)
+grid.newpage()
+grid.draw(venn.plot2)
+grid.newpage()
+grid.draw(venn.plot3)
+```
+```{r}
+# Store all datasets in a list
+dataset_list <- list(
+  data_new_alcohol,
+  data_new_alcohol_exlusive,
+  data_new_alcohol_inclusive,
+  data_new_anthropometry_ank,
+  data_new_anthropometry,
+  data_new_chewing,
+  data_new_demography,
+  data_new_FH1,
+  data_new_FH2,
+  data_new_PMH,
+  data_new_reproductive,
+  data_new_residence1,
+  data_new_residence2,
+  data_new_residence3,
+  data_new_residence4,
+  data_new_smoking
+)
+
+# Extract and sort IDs
+id_lists <- lapply(dataset_list, function(df) sort(na.omit(df$ID)))
+
+# Use the first dataset's IDs as the reference
+reference_ids <- id_lists[[1]]
+
+# Check and report matching status
+match_results <- sapply(id_lists, function(ids) identical(ids, reference_ids))
+print(match_results)
+
+# Check if all match
+if (all(match_results)) {
+  cat("\n All datasets have matching IDs.\n")
+} else {
+  cat("\n Some datasets have mismatching IDs.\n")
+  for (name in names(id_lists)) {
+    if (!identical(id_lists[[name]], reference_ids)) {
+      cat("\n--- ID mismatch in:", name, "---\n")
+      cat("Missing in", name, ":\n")
+      print(setdiff(reference_ids, id_lists[[name]]))
+      cat("Extra in", name, ":\n")
+      print(setdiff(id_lists[[name]], reference_ids))
+    }
+  }
+}
+```
+```{r}
+# 1. Store all your datasets in a named list
+dataset_list <- list(
+  alcohol = data_new_alcohol,
+  alcohol_exclusive = data_new_alcohol_exlusive,
+  alcohol_inclusive = data_new_alcohol_inclusive,
+  anthropometry_ank = data_new_anthropometry_ank,
+  anthropometry = data_new_anthropometry,
+  chewing = data_new_chewing,
+  demography = data_new_demography,
+  FH1 = data_new_FH1,
+  FH2 = data_new_FH,
+  PMH = data_new_PMH,
+  reproductive = data_new_reproductive,
+  residence1 = data_new_residence1,
+  residence2 = data_new_residence2,
+  residence3 = data_new_residence3,
+  residence4 = data_new_residence4,
+  smoking = data_new_smoking
+)
+
+# 2. Clean column names to ensure uniqueness and consistency
+dataset_list <- map(dataset_list, ~clean_names(.x))
+
+# 3. Track all unique columns seen so far
+all_columns <- c("id")
+repeated_columns <- list()
+final_data <- NULL
+
+# 4. Join all datasets one-by-one using left_join on "id", avoid duplicated columns
+for (name in names(dataset_list)) {
+  df <- dataset_list[[name]]
+  
+  # Remove duplicated columns (already present in previous datasets except 'id')
+  new_cols <- setdiff(names(df), "id")
+  duplicate_cols <- intersect(new_cols, all_columns)
+  
+  if (length(duplicate_cols) > 0) {
+    repeated_columns[[name]] <- duplicate_cols
+    df <- df %>% select(-all_of(duplicate_cols))
+  }
+  
+  all_columns <- unique(c(all_columns, names(df)))
+  
+  # First iteration
+  if (is.null(final_data)) {
+    final_data <- df
+  } else {
+    final_data <- full_join(final_data, df, by = "id")s
+  }
+}
+
+# 5. Show repeated columns
+cat("🔁 Repeated columns (not bound multiple times):\n")
+print(repeated_columns)
+
+# 6. Final dataset
+cat("\n✅ Final merged dataset dimensions:\n")
+print(dim(final_data))
+```
+
+```{r}
+# Load required libraries
+library(VennDiagram)
+library(grid)
+
+# Extract column names from each dataset
+cols_old <- colnames(data_old)
+cols_new <- colnames(final_data)
+cols_val <- colnames(data_new_validation)
+
+# Identify column names common to all three datasets
+common_cols <- Reduce(intersect, list(cols_old, cols_new, cols_val))
+cat("Common column names across all datasets:\n")
+print(common_cols)
+
+# Pairwise differences in column names
+
+# data_old vs final_data
+only_in_old <- setdiff(cols_old, cols_new)
+only_in_new <- setdiff(cols_new, cols_old)
+
+cat("\nColumns in data_old but not in final_data:\n")
+print(only_in_old)
+
+cat("\nColumns in final_data but not in data_old:\n")
+print(only_in_new)
+
+# data_old vs data_new_validation
+only_in_old_val <- setdiff(cols_old, cols_val)
+only_in_val_old <- setdiff(cols_val, cols_old)
+
+cat("\nColumns in data_old but not in data_new_validation:\n")
+print(only_in_old_val)
+
+cat("\nColumns in data_new_validation but not in data_old:\n")
+print(only_in_val_old)
+
+# final_data vs data_new_validation
+only_in_new_val <- setdiff(cols_new, cols_val)
+only_in_val_new <- setdiff(cols_val, cols_new)
+
+cat("\nColumns in final_data but not in data_new_validation:\n")
+print(only_in_new_val)
+
+cat("\nColumns in data_new_validation but not in final_data:\n")
+print(only_in_val_new)
+
+# Construct and display Venn diagram
+venn_data <- list(
+  "data_old" = cols_old,
+  "final_data" = cols_new,
+  "data_new_validation" = cols_val
+)
+
+venn.plot <- venn.diagram(
+  x = venn_data,
+  category.names = c("data_old", "final_data", "data_new_validation"),
+  filename = NULL,
+  output = TRUE,
+  main = "Venn Diagram of Column Names"
+)
+
+grid.draw(venn.plot)
+
+# Summary of intersection counts
+cat("\nIntersection summary:\n")
+cat("data_old & final_data:", length(intersect(cols_old, cols_new)), "\n")
+cat("data_old & data_new_validation:", length(intersect(cols_old, cols_val)), "\n")
+cat("final_data & data_new_validation:", length(intersect(cols_new, cols_val)), "\n")
+cat("All three datasets:", length(common_cols), "\n")
+
+```
+
+

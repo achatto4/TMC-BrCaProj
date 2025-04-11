@@ -9,6 +9,10 @@ output:
 
 ## Install the required packages and libraries
 ```{r, message = FALSE}
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("iCARE")
 library(readstata13)
 library(plotrix)
 library(gdata)
@@ -19,7 +23,7 @@ library(iCARE)
 ## Set the working directory to the location of the data and read the data
 ```{r}
 
-setwd("/Users/parichoypalchoudhury/Library/CloudStorage/Dropbox/Parichoy/TMC_CCE_Collaboration/BC_Risk_India/Data")
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
 
 data = read.dta13("Questionnaire_28.04.2017.dta",
                   generate.factors = TRUE, nonint.factors = TRUE)
@@ -93,7 +97,7 @@ data$diabetic_years_cat[data$diabetic_years >= 11] = 3
 data$bmicat[data$bmicat == 0 | data$bmicat == 1] = 1
 ```
 
-## Subset the data to pre-menopausal wome
+## Subset the data to pre-menopausal women
 ```{r}
 data_premeno = data[which(as.character(data$menopause) == "premenopausal"),]
 ```
@@ -223,8 +227,8 @@ sum(table(data_premeno$totalmiscarriage_cat
 prop.table(table(data_premeno$totalmiscarriage_cat
                  [as.character(data_premeno$br) == "Breast Cancer Case"]))
 ```
-
-## Family history of breast, endometrial and ovarian cancer
+Q. (Doesn't make sense!)
+## Family history of breast, endometrial and ovarian cancer 
 ```{r}
 table(data_premeno$family_sitory_of_beo
       [as.character(data_premeno$br) == "Control"])
@@ -355,7 +359,7 @@ sum(table(data_premeno$area
 prop.table(table(data_premeno$area
                  [as.character(data_premeno$br) == "Breast Cancer Case"]))
 ```
-
+(Important factor to avoid biased sample)
 ## Rural/urban based on first 20 years
 ```{r}
 table(data_premeno$residancefirsttwentyyears
@@ -690,8 +694,8 @@ sum(table(data_postmeno$totalmiscarriage_cat
 prop.table(table(data_postmeno$totalmiscarriage_cat
                  [as.character(data_postmeno$br) == "Breast Cancer Case"]))
 ```
-
-## Family history of breast, endometrial and ovarian cancer
+(why no differential family history)
+## Family history of breast, endometrial and ovarian cancer 
 ```{r}
 table(data_postmeno$family_sitory_of_beo
       [as.character(data_postmeno$br) == "Control"])
@@ -1130,7 +1134,7 @@ formatted_rates = function(mat){
 
 ## Formatting breast cancer incidence rate 
 ```{r}
-setwd("/Users/parichoypalchoudhury/Library/CloudStorage/Dropbox/Parichoy/TMC_CCE_Collaboration/BC_Risk_India/Data")
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
 
 bc_inci = read.xlsx("BC_Incidence_Rates.xlsx")
 bc_inci = formatted_rates(bc_inci)
@@ -1139,7 +1143,7 @@ bc_inci[,2] = bc_inci[,2]/100000
 
 ## Formatting overall mortality rate
 ```{r}
-setwd("/Users/parichoypalchoudhury/Library/CloudStorage/Dropbox/Parichoy/TMC_CCE_Collaboration/BC_Risk_India/Data")
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
 mort_inci = read.xlsx("Overall_Mortality_Rates.xlsx")
 mort_inci = formatted_rates(mort_inci)
 mort_inci[,2] = mort_inci[,2]/1000
@@ -1147,7 +1151,7 @@ mort_inci[,2] = mort_inci[,2]/1000
 
 ## Creating the reference dataset
 ```{r}
-setwd("/Users/parichoypalchoudhury/Library/CloudStorage/Dropbox/Parichoy/TMC_CCE_Collaboration/BC_Risk_India/Data")
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
 ref_data = read.xlsx("Breast_1.12.22.xlsx")
 test_data = read.xlsx("parichoy_br_data_6.2.23.xlsx")
 ```
@@ -1760,7 +1764,7 @@ text(x = 3.5, y = 1,
 
 Load the census data
 ```{r}
-setwd("/Users/parichoypalchoudhury/Library/CloudStorage/Dropbox/Parichoy/TMC_CCE_Collaboration/BC_Risk_India/Data")
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
 
 pop_data = read.xlsx("Indian population numbers by Age (Census-2011).xlsx")
 names(pop_data) = c("Age","Population")
