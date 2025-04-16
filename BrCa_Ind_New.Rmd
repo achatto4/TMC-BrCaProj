@@ -126,7 +126,7 @@ dataset_list <- list(
   data_new_chewing,
   data_new_demography,
   data_new_FH1,
-  data_new_FH2,
+  data_new_FH,
   data_new_PMH,
   data_new_reproductive,
   data_new_residence1,
@@ -136,17 +136,12 @@ dataset_list <- list(
   data_new_smoking
 )
 
-# Extract and sort IDs
+
 id_lists <- lapply(dataset_list, function(df) sort(na.omit(df$ID)))
-
-# Use the first dataset's IDs as the reference
 reference_ids <- id_lists[[1]]
-
-# Check and report matching status
 match_results <- sapply(id_lists, function(ids) identical(ids, reference_ids))
 print(match_results)
 
-# Check if all match
 if (all(match_results)) {
   cat("\n All datasets have matching IDs.\n")
 } else {
@@ -162,8 +157,8 @@ if (all(match_results)) {
   }
 }
 ```
+
 ```{r}
-# 1. Store all your datasets in a named list
 dataset_list <- list(
   alcohol = data_new_alcohol,
   alcohol_exclusive = data_new_alcohol_exlusive,
@@ -183,15 +178,11 @@ dataset_list <- list(
   smoking = data_new_smoking
 )
 
-# 2. Clean column names to ensure uniqueness and consistency
 dataset_list <- map(dataset_list, ~clean_names(.x))
-
-# 3. Track all unique columns seen so far
 all_columns <- c("id")
 repeated_columns <- list()
 final_data <- NULL
 
-# 4. Join all datasets one-by-one using left_join on "id", avoid duplicated columns
 for (name in names(dataset_list)) {
   df <- dataset_list[[name]]
   
@@ -210,35 +201,28 @@ for (name in names(dataset_list)) {
   if (is.null(final_data)) {
     final_data <- df
   } else {
-    final_data <- full_join(final_data, df, by = "id")s
+    final_data <- full_join(final_data, df, by = "id")
   }
 }
 
-# 5. Show repeated columns
 cat("🔁 Repeated columns (not bound multiple times):\n")
 print(repeated_columns)
 
-# 6. Final dataset
-cat("\n✅ Final merged dataset dimensions:\n")
+cat("\nFinal merged dataset dimensions:\n")
 print(dim(final_data))
 ```
 
 ```{r}
-# Load required libraries
 library(VennDiagram)
 library(grid)
 
-# Extract column names from each dataset
 cols_old <- colnames(data_old)
 cols_new <- colnames(final_data)
 cols_val <- colnames(data_new_validation)
 
-# Identify column names common to all three datasets
 common_cols <- Reduce(intersect, list(cols_old, cols_new, cols_val))
 cat("Common column names across all datasets:\n")
 print(common_cols)
-
-# Pairwise differences in column names
 
 # data_old vs final_data
 only_in_old <- setdiff(cols_old, cols_new)
@@ -296,4 +280,75 @@ cat("All three datasets:", length(common_cols), "\n")
 
 ```
 
+```{r}
+library(dplyr)
+
+data_old <- data_old %>% setNames(make.unique(names(.)))
+final_data <- final_data %>% setNames(make.unique(names(.)))
+data_new_validation <- data_new_validation %>% setNames(make.unique(names(.)))
+
+id_old <- data_old$id6
+id_new <- final_data$id
+id_val <- data_new_validation$id6
+
+selected_ids <- intersect(id_old, setdiff(id_new, id_val))
+
+sub_old <- data_old %>% filter(id6 %in% selected_ids) %>% rename(ID = id6)
+sub_new <- final_data %>% filter(id %in% selected_ids) %>% rename(ID = id)
+
+merged <- reduce(
+  list(sub_old, sub_new),
+  ~ full_join(.x, .y, by = "ID")
+)
+
+reference_dataset <- merged %>% distinct(ID, .keep_all = TRUE)
+
+View(reference_dataset)
+
+```
+
+```{r}
+# Load necessary package
+library(VennDiagram)
+
+# Identify cases and controls in both datasets
+# Assuming 'br' in data_old and 'x3' in final_data indicate status
+
+# Extract IDs
+old_cases <- data_old$id6[data_old$br == "Breast Cancer Case"]
+old_controls <- data_old$id6[data_old$br == "Control"]
+
+new_cases <- final_data$id[final_data$x3 == "Breast Ca."]
+new_controls <- final_data$id[final_data$x3 == "Control"]
+
+# Create lists for Venn diagram
+venn_list <- list(
+  Old_Cases = old_cases,
+  New_Cases = new_cases,
+  Old_Controls = old_controls,
+  New_Controls = new_controls
+)
+
+# Generate the Venn diagram
+venn.plot <- venn.diagram(
+  x = venn_list,
+  filename = NULL,
+  fill = c("red", "blue", "green", "orange"),
+  alpha = 0.5,
+  cex = 1.2,
+  cat.cex = 1.2,
+  main = "Overlap of Cases and Controls Across Datasets"
+)
+
+# Plot it
+grid.newpage()
+grid.draw(venn.plot)
+
+```
+
+########################Homogenizing across datasets
+
+```{r}
+
+```
 

@@ -1,6 +1,6 @@
 ---
-title: "Breast Cancer Risk Prediction in Indian Population"
-author: "Parichoy Pal Choudhury"
+title: "Breast Cancer Risk Prediction in Indian Population(New data)"
+author: ""
 date: "`r Sys.Date()`"
 output:
   pdf_document: default
@@ -17,6 +17,8 @@ library(readstata13)
 library(plotrix)
 library(gdata)
 library(openxlsx)
+library(brglm2)
+library(naniar)
 library(iCARE)
 ```
 
@@ -24,87 +26,222 @@ library(iCARE)
 ```{r}
 
 setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
-
-data = read.dta13("Questionnaire_28.04.2017.dta",
+data_old = read.dta13("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Questionnaire_28.04.2017.dta",
                   generate.factors = TRUE, nonint.factors = TRUE)
+data_new_meta = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/Meta_Data.xlsx")
+data_new_validation = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/Breast\ cancer\ _Validation\ data\ set.xlsx")
+
+#data_covariate_wise
+data_new_alcohol = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_25.09.2023.xlsx")
+data_new_alcohol_exlusive = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_exclusive_07.10.2023.xlsx")
+data_new_alcohol_inclusive = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_inclusive_07.10.2023.xlsx")
+data_new_anthropometry_ank = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Anthropometry/Anthropometry_13072023\ -\ Ankita.xlsx")
+data_new_anthropometry = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Anthropometry/Anthropometry_13072023.xlsx")
+data_new_chewing = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Chewing/Chewing_inclusive_03.07.2024_final.xlsx")
+data_new_demography = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Demographics/Demography_details_12034_17062023.xlsx")
+data_new_FH1 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Family_history_of_cancer/Fam_hist_CA_Br_core_10.08.2023..xlsx")
+data_new_FH = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Family_history_of_cancer/family_history_of_cancer_10.08.2023.xlsx")
+data_new_PMH = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Personal_medical/Personl_medical_history_27.03.2024_final.xlsx")
+data_new_reproductive = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Reproductive/Reproductive_25.07.2023_final.xlsx")
+data_new_residence1 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/Last_5_3_year_RU_05.10.2023.xlsx")
+data_new_residence2 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/Last_5_3_year_state_04.10.2023.xlsx")
+data_new_residence3 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/POB_duration_12.09.2023.xlsx")
+data_new_residence4 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/Residential_birth_current_final_17.06.2023.xlsx")
+data_new_smoking = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Smoking/Smoking_Incl_24.6.2024.xlsx")
+```
+
+
+```{r}
+dataset_list <- list(
+  alcohol = data_new_alcohol,
+  alcohol_exclusive = data_new_alcohol_exlusive,
+  alcohol_inclusive = data_new_alcohol_inclusive,
+  anthropometry_ank = data_new_anthropometry_ank,
+  anthropometry = data_new_anthropometry,
+  chewing = data_new_chewing,
+  demography = data_new_demography,
+  FH1 = data_new_FH1,
+  FH2 = data_new_FH,
+  PMH = data_new_PMH,
+  reproductive = data_new_reproductive,
+  residence1 = data_new_residence1,
+  residence2 = data_new_residence2,
+  residence3 = data_new_residence3,
+  residence4 = data_new_residence4,
+  smoking = data_new_smoking
+)
+
+dataset_list <- map(dataset_list, ~clean_names(.x))
+all_columns <- c("id")
+repeated_columns <- list()
+final_data <- NULL
+
+for (name in names(dataset_list)) {
+  df <- dataset_list[[name]]
+  
+  # Remove duplicated columns (already present in previous datasets except 'id')
+  new_cols <- setdiff(names(df), "id")
+  duplicate_cols <- intersect(new_cols, all_columns)
+  
+  if (length(duplicate_cols) > 0) {
+    repeated_columns[[name]] <- duplicate_cols
+    df <- df %>% select(-all_of(duplicate_cols))
+  }
+  
+  all_columns <- unique(c(all_columns, names(df)))
+  
+  # First iteration
+  if (is.null(final_data)) {
+    final_data <- df
+  } else {
+    final_data <- full_join(final_data, df, by = "id")
+  }
+}
+
+cat("🔁 Repeated columns (not bound multiple times):\n")
+print(repeated_columns)
+
+cat("\nFinal merged dataset dimensions:\n")
+print(dim(final_data))
 ```
 
 ## Categories for age at first full term pregnancy
 ```{r}
-data$ageatfirstfulltermpreg_cat = data$ageatfirstfulltermpreg
-data$ageatfirstfulltermpreg_cat[which(data$ageatfirstfulltermpreg < 20)] = 1
-data$ageatfirstfulltermpreg_cat[which(data$ageatfirstfulltermpreg == 20 
-                                      | data$ageatfirstfulltermpreg == 21)] = 2
-data$ageatfirstfulltermpreg_cat[which(data$ageatfirstfulltermpreg == 22 
-                                      | data$ageatfirstfulltermpreg == 23)] = 3
-data$ageatfirstfulltermpreg_cat[which(data$ageatfirstfulltermpreg == 24 
-                                      | data$ageatfirstfulltermpreg == 25)] = 4
-data$ageatfirstfulltermpreg_cat[which(data$ageatfirstfulltermpreg >= 26)] = 5
+final_data$ageatfirstfulltermpreg_cat = final_data$age_fftp
+final_data$ageatfirstfulltermpreg_cat[which(final_data$ageatfirstfulltermpreg < 20)] = 1
+final_data$ageatfirstfulltermpreg_cat[which(final_data$ageatfirstfulltermpreg == 20 
+                                      | final_data$ageatfirstfulltermpreg == 21)] = 2
+final_data$ageatfirstfulltermpreg_cat[which(final_data$ageatfirstfulltermpreg == 22 
+                                      | final_data$ageatfirstfulltermpreg == 23)] = 3
+final_data$ageatfirstfulltermpreg_cat[which(final_data$ageatfirstfulltermpreg == 24 
+                                      | final_data$ageatfirstfulltermpreg == 25)] = 4
+final_data$ageatfirstfulltermpreg_cat[which(final_data$ageatfirstfulltermpreg >= 26)] = 5
 ```
 
 ## Categories for interval between menarche and full term pregnancy
 ```{r}
-data$interval_menarche_firstbirth = data$ageatfirstfulltermpreg - 
-  data$whtagestartmensurating
+final_data$interval_menarche_firstbirth = final_data$age_fftp - 
+  final_data$age_menarche
 
-data$interval_menarche_firstbirth_cat = data$interval_menarche_firstbirth
-data$interval_menarche_firstbirth_cat[data$interval_menarche_firstbirth < 10] = 0
-data$interval_menarche_firstbirth_cat[data$interval_menarche_firstbirth >= 10] = 1
+final_data$interval_menarche_firstbirth_cat = final_data$interval_menarche_firstbirth
+final_data$interval_menarche_firstbirth_cat[final_data$interval_menarche_firstbirth < 10] = 0
+final_data$interval_menarche_firstbirth_cat[final_data$interval_menarche_firstbirth >= 10] = 1
 
 ```
 
 ## Categories for number of full term pregnancies
 ```{r}
-data$fulltermpreg_cat = data$fulltermpreg
-data$fulltermpreg_cat[data$fulltermpreg >= 4] = 4
+final_data$fulltermpreg_cat = final_data$parity
+final_data$fulltermpreg_cat[final_data$fulltermpreg >= 4] = 4
 ```
 
-## Categories for number of induced abortions
+## Categories for number of induced abortions (Not present)
 ```{r}
-data$totalabortion_cat = data$totalabortion
-data$totalabortion_cat[data$totalabortion >= 2] = 2
+# data$totalabortion_cat = data$totalabortion
+# data$totalabortion_cat[data$totalabortion >= 2] = 2
 ```
 
-## Categories for number of spontaneous abortions
+## Categories for number of spontaneous abortions (Not present)
 ```{r}
-data$totalmiscarriage_cat = data$totalmiscarriage
-data$totalmiscarriage_cat[data$totalmiscarriage >= 2] = 2
+# data$totalmiscarriage_cat = data$totalmiscarriage
+# data$totalmiscarriage_cat[data$totalmiscarriage >= 2] = 2
 ```
 
 ## Categories for duration of breastfeeding
 ```{r}
-data$mean_brfeed_duration_cat = data$mean_brfeed_duration
-data$mean_brfeed_duration_cat[data$mean_brfeed_duration < 12] = 1
-data$mean_brfeed_duration_cat[data$mean_brfeed_duration >= 12 
-                              & data$mean_brfeed_duration < 24] = 2
-data$mean_brfeed_duration_cat[data$mean_brfeed_duration >= 24 
-                              & data$mean_brfeed_duration < 36] = 3
-data$mean_brfeed_duration_cat[data$mean_brfeed_duration >= 36] = 4
+final_data$mean_brfeed_duration_cat = final_data$breast_mos
+final_data$mean_brfeed_duration_cat[final_data$mean_brfeed_duration < 12] = 1
+final_data$mean_brfeed_duration_cat[final_data$mean_brfeed_duration >= 12 
+                              & final_data$mean_brfeed_duration < 24] = 2
+final_data$mean_brfeed_duration_cat[final_data$mean_brfeed_duration >= 24 
+                              & final_data$mean_brfeed_duration < 36] = 3
+final_data$mean_brfeed_duration_cat[final_data$mean_brfeed_duration >= 36] = 4
 ```
 
 ## Categories for duration of diabetes
 ```{r}
-data$diabetic_years_cat = data$diabetic_years
-data$diabetic_years_cat[data$diabetes_YN == 0] = 0
-data$diabetic_years_cat[data$diabetic_years <= 5] = 1
-data$diabetic_years_cat[data$diabetic_years >= 6 
-                        & data$diabetic_years <= 10] = 2
-data$diabetic_years_cat[data$diabetic_years >= 11] = 3
+final_data$diabetic_years_cat = final_data$diabetes_duration
+final_data$diabetic_years_cat[final_data$diabetes_yn == 0] = 0
+final_data$diabetic_years_cat[final_data$diabetes_duration <= 5] = 1
+final_data$diabetic_years_cat[final_data$diabetes_duration >= 6 
+                        & final_data$diabetes_duration <= 10] = 2
+final_data$diabetic_years_cat[final_data$diabetes_duration >= 11] = 3
 ```
 
-## Collapsing the <=18.5 and 18.5-24.9 categories for BMI
+## Collapsing the <=18.5 and 18.5-24.9 categories for BMI(Using bmi india)
 ```{r}
-data$bmicat[data$bmicat == 0 | data$bmicat == 1] = 1
+
+```
+
+```{r}
+# family_history_of_beo
+final_data$family_history_of_beo <- as.integer(
+  final_data$f_his_fst_bc == 1 |
+  final_data$f_his_fst_oc == 1 |
+  final_data$ca_end_yn == 1
+)
+```
+
+
+```{r}
+#############
+final_data$Avg_Height = 0.5 * (final_data$height_1 + final_data$height_2)
+final_data$catht = final_data$Avg_Height
+final_data$catht[final_data$Avg_Height <= 150] = 0
+final_data$catht[final_data$Avg_Height > 150 & 
+                 final_data$Avg_Height <= 155] = 1
+final_data$catht[final_data$Avg_Height > 155 & 
+                 final_data$Avg_Height <= 160] = 2
+final_data$catht[final_data$Avg_Height > 160] = 3
+
+###############
+final_data$ratio = final_data$waist_to_hip_ratio
+final_data$ratio[final_data$waist_to_hip <= 0.84] = 0
+final_data$ratio[final_data$waist_to_hip > 0.84 & 
+                 final_data$waist_to_hip <= 0.94] = 1
+final_data$ratio[final_data$waist_to_hip > 0.94] = 2
+
+################
+final_data$case_site = as.factor(final_data$case_site)
+
+################
+final_data$last_5_yr_res_ru[!(final_data$last_5_yr_res_ru %in% c(1, 2))] <- NA
+
+################
+final_data$oc_ever[!(final_data$oc_ever %in% c(1, 0))] <- NA
+
+#################
+final_data$education_self[final_data$education_self != 1] <- 2
+
+#################
+final_data$catmenopause = final_data$mens_age_last
+final_data$catmenopause[final_data$mens_age_last <= 40] = 0
+final_data$catmenopause[final_data$mens_age_last > 40 & 
+                        final_data$mens_age_last <= 45] = 1
+final_data$catmenopause[final_data$mens_age_last > 45 & 
+                        final_data$mens_age_last <= 50] = 2
+final_data$catmenopause[final_data$mens_age_last > 50] = 3
+
+##################
+final_data$bmicat = final_data$bmi
+final_data$bmicat[final_data$bmi < 25] = 1
+final_data$bmicat[final_data$bmi >= 25 & final_data$bmi < 30] = 2
+final_data$bmicat[final_data$bmi >= 30] = 3
+
+###################
+
+final_data$case_site <- relevel(factor(final_data$case_site), ref = "Control")
+
 ```
 
 ## Subset the data to pre-menopausal women
 ```{r}
-data_premeno = data[which(as.character(data$menopause) == "premenopausal"),]
+data_premeno = final_data[which(as.character(final_data$meno_stat) == 1),]
 ```
 
 ## Number of cases and controls
 ```{r}
-table(data_premeno$br)
+table(data_premeno$case_site)
 ```
 
 ## Number and proportion of risk factors among controls and cases
@@ -112,305 +249,316 @@ table(data_premeno$br)
 ## Age at first full term pregnancy
 ```{r}
 table(data_premeno$ageatfirstfulltermpreg_cat
-      [as.character(data_premeno$br) == "Control"])
+      [as.character(data_premeno$case_site) == "Control"])
 sum(table(data_premeno$ageatfirstfulltermpreg_cat
-          [as.character(data_premeno$br) == "Control"]))
+          [as.character(data_premeno$case_site) == "Control"]))
 prop.table(table(data_premeno$ageatfirstfulltermpreg_cat
-                 [as.character(data_premeno$br) == "Control"]))
+                 [as.character(data_premeno$case_site) == "Control"]))
 
 table(data_premeno$ageatfirstfulltermpreg_cat
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
+      [as.character(data_premeno$case_site) == "Breast Ca."])
 sum(table(data_premeno$ageatfirstfulltermpreg_cat
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$ageatfirstfulltermpreg_cat
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## Interval between menarche and first full term pregnancy
 ```{r}
 table(data_premeno$interval_menarche_firstbirth_cat
-      [as.character(data_premeno$br) == "Control"])
+      [as.character(data_premeno$case_site) == "Control"])
 sum(table(data_premeno$interval_menarche_firstbirth_cat
-          [as.character(data_premeno$br) == "Control"]))
+          [as.character(data_premeno$case_site) == "Control"]))
 prop.table(table(data_premeno$interval_menarche_firstbirth_cat
-                 [as.character(data_premeno$br) == "Control"]))
+                 [as.character(data_premeno$case_site) == "Control"]))
 
 table(data_premeno$interval_menarche_firstbirth_cat
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
+      [as.character(data_premeno$case_site) == "Breast Ca."])
 sum(table(data_premeno$interval_menarche_firstbirth_cat
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$interval_menarche_firstbirth_cat
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## Number of full term pregnancies
 ```{r}
 table(data_premeno$fulltermpreg_cat
-      [as.character(data_premeno$br) == "Control"])
+      [as.character(data_premeno$case_site) == "Control"])
 sum(table(data_premeno$fulltermpreg_cat
-          [as.character(data_premeno$br) == "Control"]))
+          [as.character(data_premeno$case_site) == "Control"]))
 prop.table(table(data_premeno$fulltermpreg_cat
-                 [as.character(data_premeno$br) == "Control"]))
+                 [as.character(data_premeno$case_site) == "Control"]))
 
 table(data_premeno$fulltermpreg_cat
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
+      [as.character(data_premeno$case_site) == "Breast Ca."])
 sum(table(data_premeno$fulltermpreg_cat
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$fulltermpreg_cat
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
-## OC Use
+## oc_ever Use
 ```{r}
-table(data_premeno$oc
-      [as.character(data_premeno$br) == "Control"])
-sum(table(data_premeno$oc
-          [as.character(data_premeno$br) == "Control"]))
-prop.table(table(data_premeno$oc
-                 [as.character(data_premeno$br) == "Control"]))
+table(data_premeno$oc_ever
+      [as.character(data_premeno$case_site) == "Control"])
+sum(table(data_premeno$oc_ever
+          [as.character(data_premeno$case_site) == "Control"]))
+prop.table(table(data_premeno$oc_ever
+                 [as.character(data_premeno$case_site) == "Control"]))
 
-table(data_premeno$oc
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
-sum(table(data_premeno$oc
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_premeno$oc
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+table(data_premeno$oc_ever
+      [as.character(data_premeno$case_site) == "Breast Ca."])
+sum(table(data_premeno$oc_ever
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
+prop.table(table(data_premeno$oc_ever
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## Duration of breast-feeding
 ```{r}
 table(data_premeno$mean_brfeed_duration_cat
-      [as.character(data_premeno$br) == "Control"])
+      [as.character(data_premeno$case_site) == "Control"])
 sum(table(data_premeno$mean_brfeed_duration_cat
-          [as.character(data_premeno$br) == "Control"]))
+          [as.character(data_premeno$case_site) == "Control"]))
 prop.table(table(data_premeno$mean_brfeed_duration_cat
-                 [as.character(data_premeno$br) == "Control"]))
+                 [as.character(data_premeno$case_site) == "Control"]))
 
 table(data_premeno$mean_brfeed_duration_cat
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
+      [as.character(data_premeno$case_site) == "Breast Ca."])
 sum(table(data_premeno$mean_brfeed_duration_cat
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$mean_brfeed_duration_cat
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## Number of induced abortions
 ```{r}
-table(data_premeno$totalabortion_cat
-      [as.character(data_premeno$br) == "Control"])
-sum(table(data_premeno$totalabortion_cat
-          [as.character(data_premeno$br) == "Control"]))
-prop.table(table(data_premeno$totalabortion_cat
-                 [as.character(data_premeno$br) == "Control"]))
-
-table(data_premeno$totalabortion_cat
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
-sum(table(data_premeno$totalabortion_cat
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_premeno$totalabortion_cat
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+# table(data_premeno$totalabortion_cat
+#       [as.character(data_premeno$case_site) == "Control"])
+# sum(table(data_premeno$totalabortion_cat
+#           [as.character(data_premeno$case_site) == "Control"]))
+# prop.table(table(data_premeno$totalabortion_cat
+#                  [as.character(data_premeno$case_site) == "Control"]))
+# 
+# table(data_premeno$totalabortion_cat
+#       [as.character(data_premeno$case_site) == "Breast Ca."])
+# sum(table(data_premeno$totalabortion_cat
+#           [as.character(data_premeno$case_site) == "Breast Ca."]))
+# prop.table(table(data_premeno$totalabortion_cat
+#                  [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## Number of spontaneous abortions
 ```{r}
-table(data_premeno$totalmiscarriage_cat
-      [as.character(data_premeno$br) == "Control"])
-sum(table(data_premeno$totalmiscarriage_cat
-          [as.character(data_premeno$br) == "Control"]))
-prop.table(table(data_premeno$totalmiscarriage_cat
-                 [as.character(data_premeno$br) == "Control"]))
-
-table(data_premeno$totalmiscarriage_cat
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
-sum(table(data_premeno$totalmiscarriage_cat
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_premeno$totalmiscarriage_cat
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+# table(data_premeno$totalmiscarriage_cat
+#       [as.character(data_premeno$case_site) == "Control"])
+# sum(table(data_premeno$totalmiscarriage_cat
+#           [as.character(data_premeno$case_site) == "Control"]))
+# prop.table(table(data_premeno$totalmiscarriage_cat
+#                  [as.character(data_premeno$case_site) == "Control"]))
+# 
+# table(data_premeno$totalmiscarriage_cat
+#       [as.character(data_premeno$case_site) == "Breast Ca."])
+# sum(table(data_premeno$totalmiscarriage_cat
+#           [as.character(data_premeno$case_site) == "Breast Ca."]))
+# prop.table(table(data_premeno$totalmiscarriage_cat
+#                  [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 Q. (Doesn't make sense!)
 ## Family history of breast, endometrial and ovarian cancer 
 ```{r}
-table(data_premeno$family_sitory_of_beo
-      [as.character(data_premeno$br) == "Control"])
-sum(table(data_premeno$family_sitory_of_beo
-          [as.character(data_premeno$br) == "Control"]))
-prop.table(table(data_premeno$family_sitory_of_beo
-                 [as.character(data_premeno$br) == "Control"]))
+table(data_premeno$family_history_of_beo
+      [as.character(data_premeno$case_site) == "Control"])
+sum(table(data_premeno$family_history_of_beo
+          [as.character(data_premeno$case_site) == "Control"]))
+prop.table(table(data_premeno$family_history_of_beo
+                 [as.character(data_premeno$case_site) == "Control"]))
 
-table(data_premeno$family_sitory_of_beo
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
-sum(table(data_premeno$family_sitory_of_beo
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_premeno$family_sitory_of_beo
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+table(data_premeno$family_history_of_beo
+      [as.character(data_premeno$case_site) == "Breast Ca."])
+sum(table(data_premeno$family_history_of_beo
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
+prop.table(table(data_premeno$family_history_of_beo
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## BMI
 ```{r}
 table(data_premeno$bmicat
-      [as.character(data_premeno$br) == "Control"])
+      [as.character(data_premeno$case_site) == "Control"])
 sum(table(data_premeno$bmicat
-          [as.character(data_premeno$br) == "Control"]))
+          [as.character(data_premeno$case_site) == "Control"]))
 prop.table(table(data_premeno$bmicat
-                 [as.character(data_premeno$br) == "Control"]))
+                 [as.character(data_premeno$case_site) == "Control"]))
 
 table(data_premeno$bmicat
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
+      [as.character(data_premeno$case_site) == "Breast Ca."])
 sum(table(data_premeno$bmicat
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$bmicat
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## Height
 ```{r}
 table(data_premeno$catht
-      [as.character(data_premeno$br) == "Control"])
+      [as.character(data_premeno$case_site) == "Control"])
 sum(table(data_premeno$catht
-          [as.character(data_premeno$br) == "Control"]))
+          [as.character(data_premeno$case_site) == "Control"]))
 prop.table(table(data_premeno$catht
-                 [as.character(data_premeno$br) == "Control"]))
+                 [as.character(data_premeno$case_site) == "Control"]))
 
 table(data_premeno$catht
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
+      [as.character(data_premeno$case_site) == "Breast Ca."])
 sum(table(data_premeno$catht
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$catht
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## Waist-to-hip ratio
 ```{r}
 table(data_premeno$ratio
-      [as.character(data_premeno$br) == "Control"])
+      [as.character(data_premeno$case_site) == "Control"])
 sum(table(data_premeno$ratio
-          [as.character(data_premeno$br) == "Control"]))
+          [as.character(data_premeno$case_site) == "Control"]))
 prop.table(table(data_premeno$ratio
-                 [as.character(data_premeno$br) == "Control"]))
+                 [as.character(data_premeno$case_site) == "Control"]))
 
 table(data_premeno$ratio
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
+      [as.character(data_premeno$case_site) == "Breast Ca."])
 sum(table(data_premeno$ratio
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$ratio
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## BMI and WHR interaction
 ```{r}
 table(data_premeno$bmicat
-      [as.character(data_premeno$br) == "Control"], 
+      [as.character(data_premeno$case_site) == "Control"], 
       data_premeno$ratio
-      [as.character(data_premeno$br) == "Control"])
+      [as.character(data_premeno$case_site) == "Control"])
 sum(table(data_premeno$bmicat
-          [as.character(data_premeno$br) == "Control"], 
+          [as.character(data_premeno$case_site) == "Control"], 
           data_premeno$ratio
-          [as.character(data_premeno$br) == "Control"]))
+          [as.character(data_premeno$case_site) == "Control"]))
 prop.table(table(data_premeno$bmicat
-                 [as.character(data_premeno$br) == "Control"], 
+                 [as.character(data_premeno$case_site) == "Control"], 
                  data_premeno$ratio
-                 [as.character(data_premeno$br) == "Control"]))
+                 [as.character(data_premeno$case_site) == "Control"]))
 
 
 table(data_premeno$bmicat
-      [as.character(data_premeno$br) == "Breast Cancer Case"], 
+      [as.character(data_premeno$case_site) == "Breast Ca."], 
       data_premeno$ratio
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
+      [as.character(data_premeno$case_site) == "Breast Ca."])
 sum(table(data_premeno$bmicat
-          [as.character(data_premeno$br) == "Breast Cancer Case"], 
+          [as.character(data_premeno$case_site) == "Breast Ca."], 
           data_premeno$ratio
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$bmicat
-                 [as.character(data_premeno$br) == "Breast Cancer Case"], 
+                 [as.character(data_premeno$case_site) == "Breast Ca."], 
                  data_premeno$ratio
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
-## Categorical age at enrollment
+## Categorical age at enrollment (analyse this)
 ```{r}
-table(data_premeno$agecode
-      [as.character(data_premeno$br) == "Control"])
-sum(table(data_premeno$agecode
-          [as.character(data_premeno$br) == "Control"]))
-prop.table(table(data_premeno$agecode
-                 [as.character(data_premeno$br) == "Control"]))
-
-table(data_premeno$agecode
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
-sum(table(data_premeno$agecode
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_premeno$agecode
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+# table(data_premeno$agecode
+#       [as.character(data_premeno$case_site) == "Control"])
+# sum(table(data_premeno$agecode
+#           [as.character(data_premeno$case_site) == "Control"]))
+# prop.table(table(data_premeno$agecode
+#                  [as.character(data_premeno$case_site) == "Control"]))
+# 
+# table(data_premeno$agecode
+#       [as.character(data_premeno$case_site) == "Breast Ca."])
+# sum(table(data_premeno$agecode
+#           [as.character(data_premeno$case_site) == "Breast Ca."]))
+# prop.table(table(data_premeno$agecode
+#                  [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## Geographical location
 ```{r}
-table(data_premeno$area
-      [as.character(data_premeno$br) == "Control"])
-sum(table(data_premeno$area
-          [as.character(data_premeno$br) == "Control"]))
-prop.table(table(data_premeno$area
-                 [as.character(data_premeno$br) == "Control"]))
+table(data_premeno$cur_res_zone
+      [as.character(data_premeno$case_site) == "Control"])
+sum(table(data_premeno$cur_res_zone
+          [as.character(data_premeno$case_site) == "Control"]))
+prop.table(table(data_premeno$cur_res_zone
+                 [as.character(data_premeno$case_site) == "Control"]))
 
-table(data_premeno$area
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
-sum(table(data_premeno$area
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_premeno$area
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+table(data_premeno$cur_res_zone
+      [as.character(data_premeno$case_site) == "Breast Ca."])
+sum(table(data_premeno$cur_res_zone
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
+prop.table(table(data_premeno$cur_res_zone
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 (Important factor to avoid biased sample)
-## Rural/urban based on first 20 years
+## Rural/urban based on last 5 years (instead of first 20 years) (using last_5_yr_res_ru instead of residancefirsttwentyyears)
 ```{r}
-table(data_premeno$residancefirsttwentyyears
-      [as.character(data_premeno$br) == "Control"])
-sum(table(data_premeno$residancefirsttwentyyears
-          [as.character(data_premeno$br) == "Control"]))
-prop.table(table(data_premeno$residancefirsttwentyyears
-                 [as.character(data_premeno$br) == "Control"]))
+table(data_premeno$last_5_yr_res_ru
+      [as.character(data_premeno$case_site) == "Control"])
+sum(table(data_premeno$last_5_yr_res_ru
+          [as.character(data_premeno$case_site) == "Control"]))
+prop.table(table(data_premeno$last_5_yr_res_ru
+                 [as.character(data_premeno$case_site) == "Control"]))
 
-table(data_premeno$residancefirsttwentyyears
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
-sum(table(data_premeno$residancefirsttwentyyears
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_premeno$residancefirsttwentyyears
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+table(data_premeno$last_5_yr_res_ru
+      [as.character(data_premeno$case_site) == "Breast Ca."])
+sum(table(data_premeno$last_5_yr_res_ru
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
+prop.table(table(data_premeno$last_5_yr_res_ru
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
-## Binary education status: <8 years and >= 8 years of schooling
+## Binary education status: factorization
 ```{r}
-table(data_premeno$ed
-      [as.character(data_premeno$br) == "Control"])
-sum(table(data_premeno$ed
-          [as.character(data_premeno$br) == "Control"]))
-prop.table(table(data_premeno$ed
-                 [as.character(data_premeno$br) == "Control"]))
+table(data_premeno$education_self
+      [as.character(data_premeno$case_site) == "Control"])
+sum(table(data_premeno$education_self
+          [as.character(data_premeno$case_site) == "Control"]))
+prop.table(table(data_premeno$education_self
+                 [as.character(data_premeno$case_site) == "Control"]))
 
-table(data_premeno$ed
-      [as.character(data_premeno$br) == "Breast Cancer Case"])
-sum(table(data_premeno$ed
-          [as.character(data_premeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_premeno$ed
-                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+table(data_premeno$education_self
+      [as.character(data_premeno$case_site) == "Breast Ca."])
+sum(table(data_premeno$education_self
+          [as.character(data_premeno$case_site) == "Breast Ca."]))
+prop.table(table(data_premeno$education_self
+                 [as.character(data_premeno$case_site) == "Breast Ca."]))
 ```
 
 ## Relative risk model for premenopausal women
+excluded for now-
+as.factor(agecode) 
++ as.factor(totalabortion_cat)
+ + as.factor(totalmiscarriage_cat)
+                    
 ```{r}
-model_premeno = glm(br ~ as.factor(agecode) + as.factor(area) 
-                    + as.factor(ed) + as.factor(residancefirsttwentyyears)
+model_premeno = glm(case_site ~ as.factor(cur_res_zone)
+                    + as.factor(education_self) + as.factor(last_5_yr_res_ru)
                     + as.factor(ageatfirstfulltermpreg_cat)
-                    + interval_menarche_firstbirth_cat   
-                    + as.factor(fulltermpreg_cat)
-                    + oc + as.factor(mean_brfeed_duration_cat)
-                    + as.factor(totalabortion_cat)
-                    + as.factor(totalmiscarriage_cat)
-                    + as.factor(catht) 
-                    + as.factor(bmicat) * as.factor(ratio),
-                    data = data_premeno, family = binomial(link=logit), 
-                    na.action = na.omit)
+                    + interval_menarche_firstbirth_cat
+                    + as.factor(fulltermpreg_cat) + oc_ever
+                    + as.factor(mean_brfeed_duration_cat)
+                    + as.factor(catht)
+                    + as.factor(bmicat) * as.factor(ratio), na.action = na.omit,
+                    data = data_premeno, family = binomial(link=logit)
+                    )
+
+#na.action = na.omit
+
+# model_premeno = glm(case_site ~ as.factor(bmicat) * as.factor(ratio),
+#                     data = data_premeno, family = binomial(link=logit), 
+#                     method = "brglmFit",
+#                     na.action = na.omit)
 
 cbind(exp(coef(model_premeno)),exp(confint(model_premeno)))
 
+# NA check
 model.frame(model_premeno) |> nrow()
 nrow(data_premeno)
 
@@ -555,11 +703,11 @@ mtext(rep(expression("WHR">=0.95),3), side = 1, line = 0.2, las = 2,
 
 ## Subset the data to post-menopausal women
 ```{r}
-data_postmeno = data[which(as.character(data$menopause) == "postmenopausal"),]
+data_postmeno = final_data[which(as.character(final_data$meno_stat) == 2),]
 ```
 ## Number of cases and controls
 ```{r}
-table(data_postmeno$br)
+table(data_postmeno$case_site)
 ```
 
 ## Number and proportion of risk factors among controls
@@ -567,222 +715,222 @@ table(data_postmeno$br)
 ## Age at first full term pregnancy
 ```{r}
 table(data_postmeno$ageatfirstfulltermpreg_cat
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$ageatfirstfulltermpreg_cat
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$ageatfirstfulltermpreg_cat
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 table(data_postmeno$ageatfirstfulltermpreg_cat
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$ageatfirstfulltermpreg_cat
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$ageatfirstfulltermpreg_cat
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Interval between menarche and first full term pregnancy
 ```{r}
 table(data_postmeno$interval_menarche_firstbirth_cat
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$interval_menarche_firstbirth_cat
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$interval_menarche_firstbirth_cat
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 table(data_postmeno$interval_menarche_firstbirth_cat
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$interval_menarche_firstbirth_cat
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$interval_menarche_firstbirth_cat
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Number of full term pregnancies
 ```{r}
 table(data_postmeno$fulltermpreg_cat
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$fulltermpreg_cat
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$fulltermpreg_cat
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 table(data_postmeno$fulltermpreg_cat
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$fulltermpreg_cat
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$fulltermpreg_cat
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
-## OC Use
+## oc_ever Use
 ```{r}
-table(data_postmeno$oc
-      [as.character(data_postmeno$br) == "Control"])
-sum(table(data_postmeno$oc
-          [as.character(data_postmeno$br) == "Control"]))
-prop.table(table(data_postmeno$oc
-                 [as.character(data_postmeno$br) == "Control"]))
+table(data_postmeno$oc_ever
+      [as.character(data_postmeno$case_site) == "Control"])
+sum(table(data_postmeno$oc_ever
+          [as.character(data_postmeno$case_site) == "Control"]))
+prop.table(table(data_postmeno$oc_ever
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
-table(data_postmeno$oc
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
-sum(table(data_postmeno$oc
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_postmeno$oc
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+table(data_postmeno$oc_ever
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
+sum(table(data_postmeno$oc_ever
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
+prop.table(table(data_postmeno$oc_ever
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ##Age at menopause
 ```{r}
 table(data_postmeno$catmenopause
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$catmenopause
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$catmenopause
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 table(data_postmeno$catmenopause
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$catmenopause
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$catmenopause
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Duration of breast-feeding
 ```{r}
 table(data_postmeno$mean_brfeed_duration_cat
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$mean_brfeed_duration_cat
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$mean_brfeed_duration_cat
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 table(data_postmeno$mean_brfeed_duration_cat
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$mean_brfeed_duration_cat
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$mean_brfeed_duration_cat
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Number of induced abortions
 ```{r}
-table(data_postmeno$totalabortion_cat
-      [as.character(data_postmeno$br) == "Control"])
-sum(table(data_postmeno$totalabortion_cat
-          [as.character(data_postmeno$br) == "Control"]))
-prop.table(table(data_postmeno$totalabortion_cat
-                 [as.character(data_postmeno$br) == "Control"]))
-
-table(data_postmeno$totalabortion_cat
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
-sum(table(data_postmeno$totalabortion_cat
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_postmeno$totalabortion_cat
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+# table(data_postmeno$totalabortion_cat
+#       [as.character(data_postmeno$case_site) == "Control"])
+# sum(table(data_postmeno$totalabortion_cat
+#           [as.character(data_postmeno$case_site) == "Control"]))
+# prop.table(table(data_postmeno$totalabortion_cat
+#                  [as.character(data_postmeno$case_site) == "Control"]))
+# 
+# table(data_postmeno$totalabortion_cat
+#       [as.character(data_postmeno$case_site) == "Breast Ca."])
+# sum(table(data_postmeno$totalabortion_cat
+#           [as.character(data_postmeno$case_site) == "Breast Ca."]))
+# prop.table(table(data_postmeno$totalabortion_cat
+#                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Number of spontaneous abortions
 ```{r}
-table(data_postmeno$totalmiscarriage_cat
-      [as.character(data_postmeno$br) == "Control"])
-sum(table(data_postmeno$totalmiscarriage_cat
-          [as.character(data_postmeno$br) == "Control"]))
-prop.table(table(data_postmeno$totalmiscarriage_cat
-                 [as.character(data_postmeno$br) == "Control"]))
-
-table(data_postmeno$totalmiscarriage_cat
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
-sum(table(data_postmeno$totalmiscarriage_cat
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_postmeno$totalmiscarriage_cat
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+# table(data_postmeno$totalmiscarriage_cat
+#       [as.character(data_postmeno$case_site) == "Control"])
+# sum(table(data_postmeno$totalmiscarriage_cat
+#           [as.character(data_postmeno$case_site) == "Control"]))
+# prop.table(table(data_postmeno$totalmiscarriage_cat
+#                  [as.character(data_postmeno$case_site) == "Control"]))
+# 
+# table(data_postmeno$totalmiscarriage_cat
+#       [as.character(data_postmeno$case_site) == "Breast Ca."])
+# sum(table(data_postmeno$totalmiscarriage_cat
+#           [as.character(data_postmeno$case_site) == "Breast Ca."]))
+# prop.table(table(data_postmeno$totalmiscarriage_cat
+#                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 (why no differential family history)
 ## Family history of breast, endometrial and ovarian cancer 
 ```{r}
-table(data_postmeno$family_sitory_of_beo
-      [as.character(data_postmeno$br) == "Control"])
-sum(table(data_postmeno$family_sitory_of_beo
-          [as.character(data_postmeno$br) == "Control"]))
-prop.table(table(data_postmeno$family_sitory_of_beo
-                 [as.character(data_postmeno$br) == "Control"]))
+table(data_postmeno$family_history_of_beo
+      [as.character(data_postmeno$case_site) == "Control"])
+sum(table(data_postmeno$family_history_of_beo
+          [as.character(data_postmeno$case_site) == "Control"]))
+prop.table(table(data_postmeno$family_history_of_beo
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
-table(data_postmeno$family_sitory_of_beo
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
-sum(table(data_postmeno$family_sitory_of_beo
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_postmeno$family_sitory_of_beo
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+table(data_postmeno$family_history_of_beo
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
+sum(table(data_postmeno$family_history_of_beo
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
+prop.table(table(data_postmeno$family_history_of_beo
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## BMI
 ```{r}
 table(data_postmeno$bmicat
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$bmicat
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$bmicat
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 table(data_postmeno$bmicat
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$bmicat
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$bmicat
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Height
 ```{r}
 table(data_postmeno$catht
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$catht
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$catht
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 table(data_postmeno$catht
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$catht
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$catht
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Waist-to-hip ratio
 ```{r}
 table(data_postmeno$ratio
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$ratio
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$ratio
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 table(data_postmeno$ratio
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$ratio
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$ratio
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Duration of diabetes
 ```{r}
 table(data_postmeno$diabetic_years_cat
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$diabetic_years_cat
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$diabetic_years_cat
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 table(data_postmeno$diabetic_years_cat
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$diabetic_years_cat
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$diabetic_years_cat
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 ## New variable for duration of diabetes collapsing the levels 0 and 1
 ```{r}
@@ -792,182 +940,188 @@ data_postmeno$diabetes_duration[data_postmeno$diabetes_duration <= 1] = 1
 
 ## Diabetes
 ```{r}
-table(data_postmeno$diabetes_YN
-      [as.character(data_postmeno$br) == "Control"])
-sum(table(data_postmeno$diabetes_YN
-          [as.character(data_postmeno$br) == "Control"]))
-prop.table(table(data_postmeno$diabetes_YN
-                 [as.character(data_postmeno$br) == "Control"]))
+table(data_postmeno$diabetes_yn
+      [as.character(data_postmeno$case_site) == "Control"])
+sum(table(data_postmeno$diabetes_yn
+          [as.character(data_postmeno$case_site) == "Control"]))
+prop.table(table(data_postmeno$diabetes_yn
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
-table(data_postmeno$diabetes_YN
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
-sum(table(data_postmeno$diabetes_YN
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_postmeno$diabetes_YN
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+table(data_postmeno$diabetes_yn
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
+sum(table(data_postmeno$diabetes_yn
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
+prop.table(table(data_postmeno$diabetes_yn
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Family history of diabetes
 ```{r}
-table(data_postmeno$F_H_diabetes
-      [as.character(data_postmeno$br) == "Control"])
-sum(table(data_postmeno$F_H_diabetes
-          [as.character(data_postmeno$br) == "Control"]))
-prop.table(table(data_postmeno$F_H_diabetes
-                 [as.character(data_postmeno$br) == "Control"]))
-
-table(data_postmeno$F_H_diabetes
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
-sum(table(data_postmeno$F_H_diabetes
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_postmeno$F_H_diabetes
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+# table(data_postmeno$F_H_diabetes
+#       [as.character(data_postmeno$case_site) == "Control"])
+# sum(table(data_postmeno$F_H_diabetes
+#           [as.character(data_postmeno$case_site) == "Control"]))
+# prop.table(table(data_postmeno$F_H_diabetes
+#                  [as.character(data_postmeno$case_site) == "Control"]))
+# 
+# table(data_postmeno$F_H_diabetes
+#       [as.character(data_postmeno$case_site) == "Breast Ca."])
+# sum(table(data_postmeno$F_H_diabetes
+#           [as.character(data_postmeno$case_site) == "Breast Ca."]))
+# prop.table(table(data_postmeno$F_H_diabetes
+#                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 
 ## BMI and WHR interaction
 ```{r}
 table(data_postmeno$bmicat
-      [as.character(data_postmeno$br) == "Control"], 
+      [as.character(data_postmeno$case_site) == "Control"], 
       data_postmeno$ratio
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$bmicat
-          [as.character(data_postmeno$br) == "Control"], 
+          [as.character(data_postmeno$case_site) == "Control"], 
           data_postmeno$ratio
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$bmicat
-                 [as.character(data_postmeno$br) == "Control"], 
+                 [as.character(data_postmeno$case_site) == "Control"], 
                  data_postmeno$ratio
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 
 table(data_postmeno$bmicat
-      [as.character(data_postmeno$br) == "Breast Cancer Case"], 
+      [as.character(data_postmeno$case_site) == "Breast Ca."], 
       data_postmeno$ratio
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$bmicat
-          [as.character(data_postmeno$br) == "Breast Cancer Case"], 
+          [as.character(data_postmeno$case_site) == "Breast Ca."], 
           data_postmeno$ratio
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$bmicat
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"], 
+                 [as.character(data_postmeno$case_site) == "Breast Ca."], 
                  data_postmeno$ratio
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## BMI and diabetes interaction
 ```{r}
 table(data_postmeno$bmicat
-      [as.character(data_postmeno$br) == "Control"], 
-      data_postmeno$diabetes_YN
-      [as.character(data_postmeno$br) == "Control"])
+      [as.character(data_postmeno$case_site) == "Control"], 
+      data_postmeno$diabetes_yn
+      [as.character(data_postmeno$case_site) == "Control"])
 sum(table(data_postmeno$bmicat
-          [as.character(data_postmeno$br) == "Control"], 
-          data_postmeno$diabetes_YN
-          [as.character(data_postmeno$br) == "Control"]))
+          [as.character(data_postmeno$case_site) == "Control"], 
+          data_postmeno$diabetes_yn
+          [as.character(data_postmeno$case_site) == "Control"]))
 prop.table(table(data_postmeno$bmicat
-                 [as.character(data_postmeno$br) == "Control"], 
-                 data_postmeno$diabetes_YN
-                 [as.character(data_postmeno$br) == "Control"]))
+                 [as.character(data_postmeno$case_site) == "Control"], 
+                 data_postmeno$diabetes_yn
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
 
 table(data_postmeno$bmicat
-      [as.character(data_postmeno$br) == "Breast Cancer Case"], 
-      data_postmeno$diabetes_YN
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+      [as.character(data_postmeno$case_site) == "Breast Ca."], 
+      data_postmeno$diabetes_yn
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
 sum(table(data_postmeno$bmicat
-          [as.character(data_postmeno$br) == "Breast Cancer Case"], 
-          data_postmeno$diabetes_YN
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+          [as.character(data_postmeno$case_site) == "Breast Ca."], 
+          data_postmeno$diabetes_yn
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$bmicat
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"], 
-                 data_postmeno$diabetes_YN
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+                 [as.character(data_postmeno$case_site) == "Breast Ca."], 
+                 data_postmeno$diabetes_yn
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 
 ```
 
 ## Categorical age at enrollment
 ```{r}
-table(data_postmeno$agecode
-      [as.character(data_postmeno$br) == "Control"])
-sum(table(data_postmeno$agecode
-          [as.character(data_postmeno$br) == "Control"]))
-prop.table(table(data_postmeno$agecode
-                 [as.character(data_postmeno$br) == "Control"]))
-
-table(data_postmeno$agecode
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
-sum(table(data_postmeno$agecode
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_postmeno$agecode
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+# table(data_postmeno$agecode
+#       [as.character(data_postmeno$case_site) == "Control"])
+# sum(table(data_postmeno$agecode
+#           [as.character(data_postmeno$case_site) == "Control"]))
+# prop.table(table(data_postmeno$agecode
+#                  [as.character(data_postmeno$case_site) == "Control"]))
+# 
+# table(data_postmeno$agecode
+#       [as.character(data_postmeno$case_site) == "Breast Ca."])
+# sum(table(data_postmeno$agecode
+#           [as.character(data_postmeno$case_site) == "Breast Ca."]))
+# prop.table(table(data_postmeno$agecode
+#                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Geographical location
 ```{r}
-table(data_postmeno$area
-      [as.character(data_postmeno$br) == "Control"])
-sum(table(data_postmeno$area
-          [as.character(data_postmeno$br) == "Control"]))
-prop.table(table(data_postmeno$area
-                 [as.character(data_postmeno$br) == "Control"]))
+table(data_postmeno$cur_res_zone
+      [as.character(data_postmeno$case_site) == "Control"])
+sum(table(data_postmeno$cur_res_zone
+          [as.character(data_postmeno$case_site) == "Control"]))
+prop.table(table(data_postmeno$cur_res_zone
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
-table(data_postmeno$area
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
-sum(table(data_postmeno$area
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_postmeno$area
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+table(data_postmeno$cur_res_zone
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
+sum(table(data_postmeno$cur_res_zone
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
+prop.table(table(data_postmeno$cur_res_zone
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
-## Rural/urban based on first 20 years
+## Rural/urban based on first 20 years (last 5 yrs)
 ```{r}
-table(data_postmeno$residancefirsttwentyyears
-      [as.character(data_postmeno$br) == "Control"])
-sum(table(data_postmeno$residancefirsttwentyyears
-          [as.character(data_postmeno$br) == "Control"]))
-prop.table(table(data_postmeno$residancefirsttwentyyears
-                 [as.character(data_postmeno$br) == "Control"]))
+table(data_postmeno$last_5_yr_res_ru
+      [as.character(data_postmeno$case_site) == "Control"])
+sum(table(data_postmeno$last_5_yr_res_ru
+          [as.character(data_postmeno$case_site) == "Control"]))
+prop.table(table(data_postmeno$last_5_yr_res_ru
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
-table(data_postmeno$residancefirsttwentyyears
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
-sum(table(data_postmeno$residancefirsttwentyyears
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_postmeno$residancefirsttwentyyears
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+table(data_postmeno$last_5_yr_res_ru
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
+sum(table(data_postmeno$last_5_yr_res_ru
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
+prop.table(table(data_postmeno$last_5_yr_res_ru
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ## Binary education status: <8 years and >= 8 years of schooling
 ```{r}
-table(data_postmeno$ed
-      [as.character(data_postmeno$br) == "Control"])
-sum(table(data_postmeno$ed
-          [as.character(data_postmeno$br) == "Control"]))
-prop.table(table(data_postmeno$ed
-                 [as.character(data_postmeno$br) == "Control"]))
+table(data_postmeno$education_self
+      [as.character(data_postmeno$case_site) == "Control"])
+sum(table(data_postmeno$education_self
+          [as.character(data_postmeno$case_site) == "Control"]))
+prop.table(table(data_postmeno$education_self
+                 [as.character(data_postmeno$case_site) == "Control"]))
 
-table(data_postmeno$ed
-      [as.character(data_postmeno$br) == "Breast Cancer Case"])
-sum(table(data_postmeno$ed
-          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
-prop.table(table(data_postmeno$ed
-                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+table(data_postmeno$education_self
+      [as.character(data_postmeno$case_site) == "Breast Ca."])
+sum(table(data_postmeno$education_self
+          [as.character(data_postmeno$case_site) == "Breast Ca."]))
+prop.table(table(data_postmeno$education_self
+                 [as.character(data_postmeno$case_site) == "Breast Ca."]))
 ```
 
 ##Relative risk model for postmenopausal women
+as.factor(agecode) + 
++ as.factor(totalabortion_cat)
+                    + as.factor(totalmiscarriage_cat)+
+                    
 ```{r}
-model_postmeno = glm(br ~ as.factor(agecode) + as.factor(area) 
-                    + as.factor(ed) + as.factor(residancefirsttwentyyears)
+model_postmeno = glm(case_site ~ as.factor(cur_res_zone)
+                    + as.factor(education_self) + as.factor(last_5_yr_res_ru)
                     + as.factor(ageatfirstfulltermpreg_cat)
                     + interval_menarche_firstbirth_cat
                     + as.factor(fulltermpreg_cat)
                     + as.factor(catmenopause)
-                    + oc + as.factor(mean_brfeed_duration_cat)
-                    + as.factor(totalabortion_cat)
-                    + as.factor(totalmiscarriage_cat)
+                    + oc_ever + as.factor(mean_brfeed_duration_cat)
                     + as.factor(catht) + as.factor(bmicat) * as.factor(ratio),
-                    data = data_postmeno, family = binomial(link=logit),
-                    na.action = na.omit)
+                    na.action = na.omit,
+                    data = data_postmeno, family = binomial(link=logit))
+# na.action = na.omit (is this a factor?)
+# model_postmeno = glm(case_site ~ as.factor(bmicat) * as.factor(ratio),
+#                     data = data_postmeno, family = binomial(link=logit),
+#                     na.action = na.omit)
 
 cbind(exp(coef(model_postmeno)),exp(confint(model_postmeno)))
 
@@ -1224,18 +1378,18 @@ sum(is.na(test_data$fulltermpreg_cat))
 
 ```
 
-## OC use
+## oc_ever use
 ```{r}
-ref_data$oc = NA
-ref_data$oc[ref_data$oc_use_yn == 2] = 0
-ref_data$oc[ref_data$oc_use_yn == 1] = 1
+ref_data$oc_ever = NA
+ref_data$oc_ever[ref_data$oc_use_yn == 2] = 0
+ref_data$oc_ever[ref_data$oc_use_yn == 1] = 1
 
-test_data$oc = NA
-test_data$oc[test_data$oc_use_yn == 2] = 0
-test_data$oc[test_data$oc_use_yn == 1] = 1
+test_data$oc_ever = NA
+test_data$oc_ever[test_data$oc_use_yn == 2] = 0
+test_data$oc_ever[test_data$oc_use_yn == 1] = 1
 
-table(test_data$oc)
-sum(is.na(test_data$oc))
+table(test_data$oc_ever)
+sum(is.na(test_data$oc_ever))
 ```
 
 ## Categories for number of induced abortions
@@ -1342,21 +1496,21 @@ sum(is.na(test_data$ratio))
 
 ## Age at menopause
 ```{r}
-ref_data$catmenopause = ref_data$Age_at_men_stop
-ref_data$catmenopause[ref_data$Age_at_men_stop <= 40] = 0
-ref_data$catmenopause[ref_data$Age_at_men_stop > 40 & 
-                        ref_data$Age_at_men_stop <= 45] = 1
-ref_data$catmenopause[ref_data$Age_at_men_stop > 45 & 
-                        ref_data$Age_at_men_stop <= 50] = 2
-ref_data$catmenopause[ref_data$Age_at_men_stop > 50] = 3
+ref_data$catmenopause = ref_data$mens_age_last
+ref_data$catmenopause[ref_data$mens_age_last <= 40] = 0
+ref_data$catmenopause[ref_data$mens_age_last > 40 & 
+                        ref_data$mens_age_last <= 45] = 1
+ref_data$catmenopause[ref_data$mens_age_last > 45 & 
+                        ref_data$mens_age_last <= 50] = 2
+ref_data$catmenopause[ref_data$mens_age_last > 50] = 3
 
-test_data$catmenopause = test_data$Age_at_men_stop
-test_data$catmenopause[test_data$Age_at_men_stop <= 40] = 0
-test_data$catmenopause[test_data$Age_at_men_stop > 40 & 
-                        test_data$Age_at_men_stop <= 45] = 1
-test_data$catmenopause[test_data$Age_at_men_stop > 45 & 
-                        test_data$Age_at_men_stop <= 50] = 2
-test_data$catmenopause[test_data$Age_at_men_stop > 50] = 3
+test_data$catmenopause = test_data$mens_age_last
+test_data$catmenopause[test_data$mens_age_last <= 40] = 0
+test_data$catmenopause[test_data$mens_age_last > 40 & 
+                        test_data$mens_age_last <= 45] = 1
+test_data$catmenopause[test_data$mens_age_last > 45 & 
+                        test_data$mens_age_last <= 50] = 2
+test_data$catmenopause[test_data$mens_age_last > 50] = 3
 
 table(test_data$catmenopause)
 sum(is.na(test_data$catmenopause))
@@ -1368,7 +1522,7 @@ ref_data_premeno = ref_data[ref_data$mentruation_status == 1,]
 ref_data_premeno = ref_data_premeno[,c("age","ageatfirstfulltermpreg_cat",
                                        "interval_menarche_firstbirth_cat",
                                        "fulltermpreg_cat",
-                                       "oc", "mean_brfeed_duration_cat",
+                                       "oc_ever", "mean_brfeed_duration_cat",
                                        "totalabortion_cat",
                                        "totalmiscarriage_cat",
                                        "catht", "bmicat", "ratio")]
@@ -1388,7 +1542,7 @@ test_data_premeno = test_data[test_data$mentruation_status == 1,]
 test_data_premeno = test_data_premeno[,c("age","ageatfirstfulltermpreg_cat",
                                        "interval_menarche_firstbirth_cat",
                                        "fulltermpreg_cat",
-                                       "oc", "mean_brfeed_duration_cat",
+                                       "oc_ever", "mean_brfeed_duration_cat",
                                        "totalabortion_cat",
                                        "totalmiscarriage_cat",
                                        "catht", "bmicat", "ratio")]
@@ -1403,9 +1557,9 @@ test_data_premeno = test_data_premeno[,!names(test_data_premeno) %in% "age"]
 
 ## Model formula for premenopausal women
 ```{r}
-model.formula.premeno = br ~ as.factor(ageatfirstfulltermpreg_cat) + 
+model.formula.premeno = case_site ~ as.factor(ageatfirstfulltermpreg_cat) + 
   interval_menarche_firstbirth_cat + as.factor(fulltermpreg_cat) + 
-  oc + as.factor(mean_brfeed_duration_cat) +
+  oc_ever + as.factor(mean_brfeed_duration_cat) +
   as.factor(totalabortion_cat) + as.factor(totalmiscarriage_cat) + 
   as.factor(catht) + as.factor(bmicat) * as.factor(ratio)
 ```
@@ -1427,7 +1581,7 @@ v3$type = "factor"
 v3$levels = c("1","2","3","4")
 
 v4 = list()
-v4$name = "oc"
+v4$name = "oc_ever"
 v4$type = "continuous"
 
 v5 = list()
@@ -1569,7 +1723,7 @@ ref_data_postmeno = ref_data[ref_data$mentruation_status == 2,]
 ref_data_postmeno = ref_data_postmeno[,c("age","ageatfirstfulltermpreg_cat",
                                          "interval_menarche_firstbirth_cat",
                                          "fulltermpreg_cat", "catmenopause",
-                                         "oc", "mean_brfeed_duration_cat",
+                                         "oc_ever", "mean_brfeed_duration_cat",
                                          "totalabortion_cat",
                                          "totalmiscarriage_cat",
                                          "catht", "bmicat", "ratio")]
@@ -1586,7 +1740,7 @@ test_data_postmeno = test_data[test_data$mentruation_status == 2,]
 test_data_postmeno = test_data_postmeno[,c("age","ageatfirstfulltermpreg_cat",
                                          "interval_menarche_firstbirth_cat",
                                          "fulltermpreg_cat", "catmenopause",
-                                         "oc", "mean_brfeed_duration_cat",
+                                         "oc_ever", "mean_brfeed_duration_cat",
                                          "totalabortion_cat",
                                          "totalmiscarriage_cat",
                                          "catht", "bmicat", "ratio")]
@@ -1601,9 +1755,9 @@ test_data_postmeno = test_data_postmeno[,!names(test_data_postmeno) %in% "age"]
 
 ## Model formula for postmenopausal women
 ```{r}
-model.formula.postmeno = br ~ as.factor(ageatfirstfulltermpreg_cat) + 
+model.formula.postmeno = case_site ~ as.factor(ageatfirstfulltermpreg_cat) + 
   interval_menarche_firstbirth_cat + as.factor(fulltermpreg_cat) + 
-  as.factor(catmenopause) + oc + as.factor(mean_brfeed_duration_cat) + 
+  as.factor(catmenopause) + oc_ever + as.factor(mean_brfeed_duration_cat) + 
   as.factor(totalabortion_cat) + as.factor(totalmiscarriage_cat) + 
   as.factor(catht) + as.factor(bmicat) * as.factor(ratio)
 ```
@@ -1631,7 +1785,7 @@ v4$type = "factor"
 v4$levels = c("0","1","2","3")
 
 v5 = list()
-v5$name = "oc"
+v5$name = "oc_ever"
 v5$type = "continuous"
 
 v6 = list()
