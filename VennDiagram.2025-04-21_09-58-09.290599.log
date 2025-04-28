@@ -1,0 +1,15 @@
+INFO [2025-04-21 09:58:09] $x
+INFO [2025-04-21 09:58:09] venn_data
+INFO [2025-04-21 09:58:09] 
+INFO [2025-04-21 09:58:09] $category.names
+INFO [2025-04-21 09:58:09] c("data_old", "final_data", "data_new_validation")
+INFO [2025-04-21 09:58:09] 
+INFO [2025-04-21 09:58:09] $filename
+INFO [2025-04-21 09:58:09] NULL
+INFO [2025-04-21 09:58:09] 
+INFO [2025-04-21 09:58:09] $output
+INFO [2025-04-21 09:58:09] [1] TRUE
+INFO [2025-04-21 09:58:09] 
+INFO [2025-04-21 09:58:09] $main
+INFO [2025-04-21 09:58:09] [1] "Venn Diagram of Column Names"
+INFO [2025-04-21 09:58:09] 

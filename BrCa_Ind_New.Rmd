@@ -28,6 +28,8 @@ library(janitor)
 setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
 data_old = read.dta13("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Questionnaire_28.04.2017.dta",
                   generate.factors = TRUE, nonint.factors = TRUE)
+ref_data = read.xlsx("Breast_1.12.22.xlsx")
+test_data = read.xlsx("parichoy_br_data_6.2.23.xlsx")
 data_new_meta = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/Meta_Data.xlsx")
 data_new_validation = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/Breast\ cancer\ _Validation\ data\ set.xlsx")
 
@@ -345,6 +347,89 @@ grid.newpage()
 grid.draw(venn.plot)
 
 ```
+```{r}
+# Load necessary package
+library(VennDiagram)
+
+# Extract unique IDs (just to be safe)
+ref_ids <- unique(ref_data$Id)
+final_ids <- unique(final_data$id)
+
+# Create the Venn diagram
+venn.plot <- draw.pairwise.venn(
+  area1 = length(ref_ids),
+  area2 = length(final_ids),
+  cross.area = length(intersect(ref_ids, final_ids)),
+  category = c("Reference", "Final"),
+  fill = c("skyblue", "orange"),
+  lty = "blank",
+  cex = 2,
+  cat.cex = 2,
+  cat.pos = c(-20, 20),
+  cat.dist = 0.05,
+  ind = FALSE
+)
+grid.newpage()
+grid.draw(venn.plot)
+
+##############################################################
+
+# Load necessary package
+library(VennDiagram)
+
+# Extract unique IDs (just to be safe)
+test_ids <- unique(test_data$Id)
+final_ids <- unique(final_data$id)
+
+# Create the Venn diagram
+venn.plot <- draw.pairwise.venn(
+  area1 = length(test_ids),
+  area2 = length(final_ids),
+  cross.area = length(intersect(test_ids, final_ids)),
+  category = c("Reference", "Final"),
+  fill = c("skyblue", "orange"),
+  lty = "blank",
+  cex = 2,
+  cat.cex = 2,
+  cat.pos = c(-20, 20),
+  cat.dist = 0.05,
+  ind = FALSE
+)
+grid.newpage()
+grid.draw(venn.plot)
+
+
+```
+
+```{r}
+library(ggVennDiagram)
+library(tibble)
+
+# Your sets
+Old_ref   <- as.character(unique(ref_data$Id))
+old_train   <- as.character(unique(data_old$id6))
+New_meta  <- as.character(unique(data_new_meta$ID))
+New_val   <- as.character(unique(data_new_validation$id6))
+New_final <- as.character(unique(final_data$id))
+
+# Create a named list of the sets
+venn_list <- list(
+  Old_Reference = Old_ref,
+  Old_train       = old_train,
+  New_Meta      = New_meta,
+  New_Validation = New_val,
+  New_Final     = New_final
+)
+
+# Plot the Venn diagram
+ggVennDiagram(venn_list, label_alpha = 0, label = "count") +
+  scale_fill_gradient(low = "#F2F0F7", high = "#54278F") +
+  theme_void() +
+  theme(legend.position = "none")
+
+```
+
+
 
 ########################Homogenizing across datasets
 

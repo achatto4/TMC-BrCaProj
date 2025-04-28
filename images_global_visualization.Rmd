@@ -1,0 +1,81 @@
+---
+title: "Visualizations"
+output: html_document
+date: "2025-04-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r cars}
+# Load required libraries
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# Create the data frame
+data <- read.csv("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/BC_data_new.csv")
+# Pivot to long format
+data_long <- pivot_longer(data,
+                          cols = -Registry..year.,
+                          names_to = "AgeGroup",
+                          values_to = "Incidence")
+
+# Clean AgeGroup (remove "X" and replace "." with "-")
+data_long <- data_long %>%
+  mutate(
+    AgeGroup = gsub("^X", "", AgeGroup),
+    AgeGroup = gsub("\\.", "-", AgeGroup)
+  )
+
+# Create numeric age midpoint (used for plotting)
+data_long <- data_long %>%
+  mutate(
+    AgeMid = case_when(
+      AgeGroup == "0-4" ~ 2.5,
+      AgeGroup == "5-9" ~ 7.5,
+      AgeGroup == "10-14" ~ 12.5,
+      AgeGroup == "15-19" ~ 17.5,
+      AgeGroup == "20-24" ~ 22.5,
+      AgeGroup == "25-29" ~ 27.5,
+      AgeGroup == "30-34" ~ 32.5,
+      AgeGroup == "35-39" ~ 37.5,
+      AgeGroup == "40-44" ~ 42.5,
+      AgeGroup == "45-49" ~ 47.5,
+      AgeGroup == "50-54" ~ 52.5,
+      AgeGroup == "55-59" ~ 57.5,
+      AgeGroup == "60-64" ~ 62.5,
+      AgeGroup == "65-69" ~ 67.5,
+      AgeGroup == "70-74" ~ 72.5,
+      AgeGroup == "75+" ~ 80
+    )
+  )
+
+library(grid)
+
+ggplot(data_long, aes(x = AgeMid, y = Incidence, color = Registry..year.)) +
+  geom_line(size = 1.1) +
+  labs(
+    title = "Breast Cancer Incidence Rate by Age Group",
+    x = "Age (years)",
+    y = "Incidence rate (per 100,000 population)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15, hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    legend.position = "right",
+    legend.text = element_text(size = 8),
+    legend.title = element_blank(),
+    legend.key.size = unit(0.4, "lines"),
+    legend.spacing.y = unit(0.2, "lines"),
+    legend.margin = margin(l = 5),
+    panel.grid.major = element_line(color = "gray85"),
+    panel.grid.minor = element_blank()
+  ) +
+  guides(color = guide_legend(ncol = 1, byrow = TRUE))
+
+```

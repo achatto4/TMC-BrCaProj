@@ -15,11 +15,14 @@ output:
 # BiocManager::install("iCARE")
 library(readstata13)
 library(plotrix)
+library(dplyr)
 library(gdata)
 library(openxlsx)
 library(brglm2)
 library(naniar)
 library(iCARE)
+library(purrr)
+library(janitor)
 ```
 
 ## Set the working directory to the location of the data and read the data
@@ -131,8 +134,8 @@ final_data$interval_menarche_firstbirth_cat[final_data$interval_menarche_firstbi
 
 ## Categories for number of full term pregnancies
 ```{r}
-final_data$fulltermpreg_cat = final_data$parity
-final_data$fulltermpreg_cat[final_data$fulltermpreg >= 4] = 4
+final_data$fulltermpreg_cat <- ifelse(final_data$parous == 0, 0, final_data$parity)
+final_data$fulltermpreg_cat[final_data$fulltermpreg_cat >= 4] <- 4
 ```
 
 ## Categories for number of induced abortions (Not present)
@@ -149,7 +152,7 @@ final_data$fulltermpreg_cat[final_data$fulltermpreg >= 4] = 4
 
 ## Categories for duration of breastfeeding
 ```{r}
-final_data$mean_brfeed_duration_cat = final_data$breast_mos
+final_data$mean_brfeed_duration_cat = final_data$breast_mos/final_data$fulltermpreg_cat
 final_data$mean_brfeed_duration_cat[final_data$mean_brfeed_duration < 12] = 1
 final_data$mean_brfeed_duration_cat[final_data$mean_brfeed_duration >= 12 
                               & final_data$mean_brfeed_duration < 24] = 2
@@ -168,8 +171,40 @@ final_data$diabetic_years_cat[final_data$diabetes_duration >= 6
 final_data$diabetic_years_cat[final_data$diabetes_duration >= 11] = 3
 ```
 
-## Collapsing the <=18.5 and 18.5-24.9 categories for BMI(Using bmi india)
+## 2D:4D
 ```{r}
+library(ggplot2)
+library(dplyr)
+
+# Create 2D:4D ratios
+final_data <- final_data %>%
+  mutate(
+    TwoD4D_left = left_index_finger / left_ring_finger,
+    TwoD4D_right = right_index_finger / right_ring_finger
+  )
+
+# Histogram for TwoD4D_left
+ggplot(final_data, aes(x = TwoD4D_left, fill = case_site)) +
+  geom_histogram(alpha = 0.6, bins = 100, position = "identity") +
+  scale_fill_manual(values = c("Control" = "#1f77b4", "Breast Ca." = "#d62728")) +
+  labs(title = "Histogram of 2D:4D Ratio (Left Hand)", x = "2D:4D (Left)", y = "Count") +
+  theme_minimal()
+
+# Histogram for TwoD4D_right
+ggplot(final_data, aes(x = TwoD4D_right, fill = case_site)) +
+  geom_histogram(alpha = 0.6, bins = 100, position = "identity") +
+  scale_fill_manual(values = c("Control" = "#1f77b4", "Breast Ca." = "#d62728")) +
+  labs(title = "Histogram of 2D:4D Ratio (Right Hand)", x = "2D:4D (Right)", y = "Count") +
+  theme_minimal()
+
+final_data <- final_data %>%
+  mutate(
+    TwoD4D_left_quart_cat = factor(ntile(TwoD4D_left, 4),
+                                   labels = c("Q1", "Q2", "Q3", "Q4")),
+    TwoD4D_right_quint_cat = factor(ntile(TwoD4D_right, 4),
+                                    labels = c("Q1", "Q2", "Q3", "Q4"))
+  )
+
 
 ```
 
@@ -185,7 +220,10 @@ final_data$family_history_of_beo <- as.integer(
 
 ```{r}
 #############
-final_data$Avg_Height = 0.5 * (final_data$height_1 + final_data$height_2)
+final_data$Avg_Height = ifelse(is.na(final_data$height_1), final_data$height_2, 
+                                ifelse(is.na(final_data$height_2), final_data$height_1, 
+                                       0.5 * (final_data$height_1 + final_data$height_2)))
+
 final_data$catht = final_data$Avg_Height
 final_data$catht[final_data$Avg_Height <= 150] = 0
 final_data$catht[final_data$Avg_Height > 150 & 
@@ -193,6 +231,7 @@ final_data$catht[final_data$Avg_Height > 150 &
 final_data$catht[final_data$Avg_Height > 155 & 
                  final_data$Avg_Height <= 160] = 2
 final_data$catht[final_data$Avg_Height > 160] = 3
+
 
 ###############
 final_data$ratio = final_data$waist_to_hip_ratio
@@ -211,7 +250,7 @@ final_data$last_5_yr_res_ru[!(final_data$last_5_yr_res_ru %in% c(1, 2))] <- NA
 final_data$oc_ever[!(final_data$oc_ever %in% c(1, 0))] <- NA
 
 #################
-final_data$education_self[final_data$education_self != 1] <- 2
+final_data$education_self <- ifelse(final_data$education_self > 4, 2, 1)
 
 #################
 final_data$catmenopause = final_data$mens_age_last
@@ -244,6 +283,43 @@ data_premeno = final_data[which(as.character(final_data$meno_stat) == 1),]
 table(data_premeno$case_site)
 ```
 
+```{r}
+# Function to compute NA percentage for a group
+compute_na_pct <- function(data, variable, case_site_value, meno_stat_value) {
+  subset_data <- data[data$case_site == case_site_value & data$meno_stat == meno_stat_value, ]
+  total_n <- nrow(subset_data)
+  na_n <- sum(is.na(subset_data[[variable]]))
+  na_pct <- round(100 * na_n / total_n, 2)
+  return(na_pct)
+}
+
+# Variables to check
+vars <- c("ageatfirstfulltermpreg_cat",
+          "interval_menarche_firstbirth_cat",
+          "fulltermpreg_cat",
+          "oc_ever",
+          "mean_brfeed_duration_cat",
+          "catht",
+          "bmicat",
+          "ratio")
+
+# Initialize output data frame
+summary_df <- data.frame(variable = vars)
+
+# Add columns for each case_site + meno_stat combination
+summary_df$Control_1 <- sapply(vars, function(v) compute_na_pct(final_data, v, "Control", 1))         # Control, pre
+summary_df$Control_2 <- sapply(vars, function(v) compute_na_pct(final_data, v, "Control", 2))         # Control, post
+summary_df$BreastCa_1 <- sapply(vars, function(v) compute_na_pct(final_data, v, "Breast Ca.", 1))     # Case, pre
+summary_df$BreastCa_2 <- sapply(vars, function(v) compute_na_pct(final_data, v, "Breast Ca.", 2))     # Case, post
+
+# View results
+print(summary_df)
+
+
+
+```
+
+
 ## Number and proportion of risk factors among controls and cases
 
 ## Age at first full term pregnancy
@@ -261,6 +337,40 @@ sum(table(data_premeno$ageatfirstfulltermpreg_cat
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$ageatfirstfulltermpreg_cat
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+library(dplyr)
+library(ggplot2)
+
+# Prepare the data
+plot_data <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, ageatfirstfulltermpreg_cat) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data, aes(x = ageatfirstfulltermpreg_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)), 
+            position = position_dodge(width = 0.8), 
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +  # swapped!
+  labs(
+    title = "Age at First Full-Term Pregnancy (Premeno-new)",
+    x = "Age Category",
+    y = "Proportion",
+    fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+    legend.position = "top"
+  )
+
+
 ```
 
 ## Interval between menarche and first full term pregnancy
@@ -278,6 +388,33 @@ sum(table(data_premeno$interval_menarche_firstbirth_cat
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$interval_menarche_firstbirth_cat
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data
+plot_data_interval <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, interval_menarche_firstbirth_cat) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_interval, aes(x = interval_menarche_firstbirth_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Interval Between Menarche and First Birth (Premeno, New)",
+    x = "Interval Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Number of full term pregnancies
@@ -295,6 +432,33 @@ sum(table(data_premeno$fulltermpreg_cat
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$fulltermpreg_cat
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data
+plot_data_ftp <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, fulltermpreg_cat) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_ftp, aes(x = fulltermpreg_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Number of Full-Term Pregnancies (Premeno, New)",
+    x = "Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## oc_ever Use
@@ -312,6 +476,97 @@ sum(table(data_premeno$oc_ever
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$oc_ever
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data
+plot_data_oc <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, oc_ever) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_oc, aes(x = oc_ever, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Oral Contraceptive Ever Use (Premeno, New)",
+    x = "Ever Used OC", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+```{r}
+# Left-hand 2D:4D quartile category summary
+cat("===== TwoD4D_left_quart_cat =====\n")
+
+cat("\n-- Control --\n")
+print(table(data_premeno$TwoD4D_left_quart_cat[data_premeno$case_site == "Control"]))
+print(prop.table(table(data_premeno$TwoD4D_left_quart_cat[data_premeno$case_site == "Control"])))
+
+cat("\n-- Breast Ca. --\n")
+print(table(data_premeno$TwoD4D_left_quart_cat[data_premeno$case_site == "Breast Ca."]))
+print(prop.table(table(data_premeno$TwoD4D_left_quart_cat[data_premeno$case_site == "Breast Ca."])))
+
+# Right-hand 2D:4D quintile category summary
+cat("\n===== TwoD4D_right_quint_cat =====\n")
+
+cat("\n-- Control --\n")
+print(table(data_premeno$TwoD4D_right_quint_cat[data_premeno$case_site == "Control"]))
+print(prop.table(table(data_premeno$TwoD4D_right_quint_cat[data_premeno$case_site == "Control"])))
+
+cat("\n-- Breast Ca. --\n")
+print(table(data_premeno$TwoD4D_right_quint_cat[data_premeno$case_site == "Breast Ca."]))
+print(prop.table(table(data_premeno$TwoD4D_right_quint_cat[data_premeno$case_site == "Breast Ca."])))
+
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+
+# Left hand plot data
+left_plot_data <- data_premeno %>%
+  filter(!is.na(TwoD4D_left_quart_cat)) %>%
+  group_by(case_site, TwoD4D_left_quart_cat) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n))
+
+p_left <- ggplot(left_plot_data, aes(x = TwoD4D_left_quart_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  labs(title = "2D:4D Left Hand (Quartiles)", x = "Quartile", y = "Proportion") +
+  scale_fill_manual(values = c("Control" = "#1f77b4", "Breast Ca." = "#d62728")) +
+  theme_minimal(base_size = 13)
+
+# Right hand plot data
+right_plot_data <- data_premeno %>%
+  filter(!is.na(TwoD4D_right_quint_cat)) %>%
+  group_by(case_site, TwoD4D_right_quint_cat) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n))
+
+p_right <- ggplot(right_plot_data, aes(x = TwoD4D_right_quint_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  labs(title = "2D:4D Right Hand (Quintiles)", x = "Quintile", y = "Proportion") +
+  scale_fill_manual(values = c("Control" = "#1f77b4", "Breast Ca." = "#d62728")) +
+  theme_minimal(base_size = 13)
+
+# Combine both plots
+combined_plot <- p_left + p_right + plot_layout(ncol = 2, guides = "collect") & theme(legend.position = "bottom")
+
+# Display
+print(combined_plot)
+
+
 ```
 
 ## Duration of breast-feeding
@@ -329,6 +584,33 @@ sum(table(data_premeno$mean_brfeed_duration_cat
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$mean_brfeed_duration_cat
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data
+plot_data_bf <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, mean_brfeed_duration_cat) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_bf, aes(x = mean_brfeed_duration_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Mean Breastfeeding Duration Category (Premeno, New)",
+    x = "Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Number of induced abortions
@@ -380,6 +662,33 @@ sum(table(data_premeno$family_history_of_beo
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$family_history_of_beo
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data for family history of breast cancer (Premenopausal - New)
+plot_data_fam_history <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, family_history_of_beo) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_fam_history, aes(x = family_history_of_beo, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Family History of Breast Cancer (Premenopausal - New)",
+    x = "Family History of Breast Cancer", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## BMI
@@ -397,6 +706,33 @@ sum(table(data_premeno$bmicat
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$bmicat
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data for BMI categories (Premenopausal - New)
+plot_data_bmi <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, bmicat) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_bmi, aes(x = bmicat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "BMI Categories (Premenopausal - New)",
+    x = "BMI Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Height
@@ -414,6 +750,33 @@ sum(table(data_premeno$catht
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$catht
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'catht' (Premenopausal - New)
+plot_data_catht <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, catht) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_catht, aes(x = catht, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "CatHeight Categories (Premenopausal - New)",
+    x = "Catheight Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Waist-to-hip ratio
@@ -431,6 +794,33 @@ sum(table(data_premeno$ratio
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$ratio
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'ratio' (Premenopausal - New)
+plot_data_ratio <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, ratio) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_ratio, aes(x = ratio, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Ratio Categories (Premenopausal - New)",
+    x = "Ratio Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## BMI and WHR interaction
@@ -495,6 +885,33 @@ sum(table(data_premeno$cur_res_zone
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$cur_res_zone
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'cur_res_zone' (Premenopausal - New)
+plot_data_cur_res_zone <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, cur_res_zone) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_cur_res_zone, aes(x = cur_res_zone, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Current Residence Zone (Premenopausal - New)",
+    x = "Current Residence Zone", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 (Important factor to avoid biased sample)
 ## Rural/urban based on last 5 years (instead of first 20 years) (using last_5_yr_res_ru instead of residancefirsttwentyyears)
@@ -512,6 +929,33 @@ sum(table(data_premeno$last_5_yr_res_ru
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$last_5_yr_res_ru
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'last_5_yr_res_ru' (Premenopausal - New)
+plot_data_last_5_yr_res_ru <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, last_5_yr_res_ru) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_last_5_yr_res_ru, aes(x = last_5_yr_res_ru, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Residence in Last 5 Years (Premenopausal - New)",
+    x = "Residence in Last 5 Years", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Binary education status: factorization
@@ -529,6 +973,33 @@ sum(table(data_premeno$education_self
           [as.character(data_premeno$case_site) == "Breast Ca."]))
 prop.table(table(data_premeno$education_self
                  [as.character(data_premeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'education_self' (Premenopausal - New)
+plot_data_education_self <- data_premeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, education_self) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_education_self, aes(x = education_self, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Education Level (Premenopausal - New)",
+    x = "Education Level", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Relative risk model for premenopausal women
@@ -710,7 +1181,75 @@ data_postmeno = final_data[which(as.character(final_data$meno_stat) == 2),]
 table(data_postmeno$case_site)
 ```
 
+
 ## Number and proportion of risk factors among controls
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(patchwork)
+
+# ===== TABULATION =====
+
+cat("===== TwoD4D_left_quart_cat (POSTMENO) =====\n")
+
+cat("\n-- Control --\n")
+print(table(data_postmeno$TwoD4D_left_quart_cat[data_postmeno$case_site == "Control"]))
+print(prop.table(table(data_postmeno$TwoD4D_left_quart_cat[data_postmeno$case_site == "Control"])))
+
+cat("\n-- Breast Ca. --\n")
+print(table(data_postmeno$TwoD4D_left_quart_cat[data_postmeno$case_site == "Breast Ca."]))
+print(prop.table(table(data_postmeno$TwoD4D_left_quart_cat[data_postmeno$case_site == "Breast Ca."])))
+
+cat("\n===== TwoD4D_right_quint_cat (POSTMENO) =====\n")
+
+cat("\n-- Control --\n")
+print(table(data_postmeno$TwoD4D_right_quint_cat[data_postmeno$case_site == "Control"]))
+print(prop.table(table(data_postmeno$TwoD4D_right_quint_cat[data_postmeno$case_site == "Control"])))
+
+cat("\n-- Breast Ca. --\n")
+print(table(data_postmeno$TwoD4D_right_quint_cat[data_postmeno$case_site == "Breast Ca."]))
+print(prop.table(table(data_postmeno$TwoD4D_right_quint_cat[data_postmeno$case_site == "Breast Ca."])))
+
+# ===== PLOTS =====
+
+# Left hand plot
+left_plot_data <- data_postmeno %>%
+  filter(!is.na(TwoD4D_left_quart_cat)) %>%
+  group_by(case_site, TwoD4D_left_quart_cat) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n))
+
+p_left <- ggplot(left_plot_data, aes(x = TwoD4D_left_quart_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  labs(title = "2D:4D Left Hand (Postmenopausal)", x = "Quartile", y = "Proportion") +
+  scale_fill_manual(values = c("Control" = "#1f77b4", "Breast Ca." = "#d62728")) +
+  theme_minimal(base_size = 13)
+
+# Right hand plot
+right_plot_data <- data_postmeno %>%
+  filter(!is.na(TwoD4D_right_quint_cat)) %>%
+  group_by(case_site, TwoD4D_right_quint_cat) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n))
+
+p_right <- ggplot(right_plot_data, aes(x = TwoD4D_right_quint_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  labs(title = "2D:4D Right Hand (Postmenopausal)", x = "Quintile", y = "Proportion") +
+  scale_fill_manual(values = c("Control" = "#1f77b4", "Breast Ca." = "#d62728")) +
+  theme_minimal(base_size = 13)
+
+# Combine plots
+combined_postmeno_plot <- p_left + p_right + 
+  plot_layout(ncol = 2, guides = "collect") & theme(legend.position = "bottom")
+
+# Display
+print(combined_postmeno_plot)
+
+```
+
 
 ## Age at first full term pregnancy
 ```{r}
@@ -727,6 +1266,37 @@ sum(table(data_postmeno$ageatfirstfulltermpreg_cat
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$ageatfirstfulltermpreg_cat
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+library(dplyr)
+library(ggplot2)
+
+# Prepare the data
+plot_data_post <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, ageatfirstfulltermpreg_cat) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_post, aes(x = ageatfirstfulltermpreg_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +  # Swap colors if needed
+  labs(
+    title = "Age at First Full-Term Pregnancy(Postmeno-New)",
+    x = "Age Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Interval between menarche and first full term pregnancy
@@ -744,6 +1314,33 @@ sum(table(data_postmeno$interval_menarche_firstbirth_cat
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$interval_menarche_firstbirth_cat
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data
+plot_data_interval <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, interval_menarche_firstbirth_cat) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_interval, aes(x = interval_menarche_firstbirth_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Interval Between Menarche and First Birth (Postmeno, New)",
+    x = "Interval Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Number of full term pregnancies
@@ -761,6 +1358,33 @@ sum(table(data_postmeno$fulltermpreg_cat
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$fulltermpreg_cat
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data
+plot_data_fullpreg <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, fulltermpreg_cat) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_fullpreg, aes(x = fulltermpreg_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Full-Term Pregnancy (Postmeno, New)",
+    x = "Full-Term Pregnancy Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## oc_ever Use
@@ -778,6 +1402,33 @@ sum(table(data_postmeno$oc_ever
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$oc_ever
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data for oc_ever (Postmeno, New)
+plot_data_oc_ever <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, oc_ever) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_oc_ever, aes(x = oc_ever, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Oral Contraceptive Use (Postmeno, New)",
+    x = "OC Ever Use", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ##Age at menopause
@@ -795,6 +1446,33 @@ sum(table(data_postmeno$catmenopause
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$catmenopause
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data for catmenopause (Postmeno, New)
+plot_data_catmenopause <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, catmenopause) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_catmenopause, aes(x = catmenopause, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Menopause Status (Postmeno, New)",
+    x = "Menopause Status", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Duration of breast-feeding
@@ -812,6 +1490,33 @@ sum(table(data_postmeno$mean_brfeed_duration_cat
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$mean_brfeed_duration_cat
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data for mean_brfeed_duration_cat (Postmeno, New)
+plot_data_brfeed <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, mean_brfeed_duration_cat) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_brfeed, aes(x = mean_brfeed_duration_cat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Breastfeeding Duration Category (Postmeno, New)",
+    x = "Breastfeeding Duration Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Number of induced abortions
@@ -863,6 +1568,33 @@ sum(table(data_postmeno$family_history_of_beo
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$family_history_of_beo
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'family_history_of_beo' (Postmenopausal - New)
+plot_data_family_history_of_beo <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, family_history_of_beo) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_family_history_of_beo, aes(x = family_history_of_beo, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Family History of BEO (Postmenopausal - New)",
+    x = "Family History of BEO", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## BMI
@@ -880,6 +1612,33 @@ sum(table(data_postmeno$bmicat
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$bmicat
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'bmicat' (Postmenopausal - New)
+plot_data_bmicat <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, bmicat) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_bmicat, aes(x = bmicat, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "BMI Category (Postmenopausal - New)",
+    x = "BMI Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Height
@@ -897,6 +1656,33 @@ sum(table(data_postmeno$catht
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$catht
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'catht' (Postmenopausal - New)
+plot_data_catht <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, catht) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_catht, aes(x = catht, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Catheight (Postmenopausal - New)",
+    x = "Cat-height Use", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Waist-to-hip ratio
@@ -914,6 +1700,33 @@ sum(table(data_postmeno$ratio
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$ratio
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'ratio' (Postmenopausal - New)
+plot_data_ratio <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, ratio) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_ratio, aes(x = ratio, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Ratio Distribution (Postmenopausal - New)",
+    x = "Ratio", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Duration of diabetes
@@ -953,6 +1766,33 @@ sum(table(data_postmeno$diabetes_yn
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$diabetes_yn
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'diabetes_yn' (Postmenopausal - New)
+plot_data_diabetes <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, diabetes_yn) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_diabetes, aes(x = diabetes_yn, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Diabetes History Distribution (Postmenopausal - New)",
+    x = "Diabetes (Yes/No)", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Family history of diabetes
@@ -1066,6 +1906,34 @@ sum(table(data_postmeno$cur_res_zone
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$cur_res_zone
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+
+# Prepare data for 'cur_res_zone' (Postmenopausal - New)
+plot_data_cur_res_zone <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, cur_res_zone) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_cur_res_zone, aes(x = cur_res_zone, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Current Residence Zone Distribution (Postmenopausal - New)",
+    x = "Residence Zone", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ## Rural/urban based on first 20 years (last 5 yrs)
@@ -1083,6 +1951,34 @@ sum(table(data_postmeno$last_5_yr_res_ru
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$last_5_yr_res_ru
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data
+plot_data_residence5yr <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, last_5_yr_res_ru) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_residence5yr, aes(x = last_5_yr_res_ru, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Residential Zone (Last 5 Years) - Postmenopausal (New)",
+    x = "Residential Zone", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+
 ```
 
 ## Binary education status: <8 years and >= 8 years of schooling
@@ -1100,6 +1996,33 @@ sum(table(data_postmeno$education_self
           [as.character(data_postmeno$case_site) == "Breast Ca."]))
 prop.table(table(data_postmeno$education_self
                  [as.character(data_postmeno$case_site) == "Breast Ca."]))
+
+# Prepare data for 'education_self' (Postmenopausal - New)
+plot_data_education_self <- data_postmeno %>%
+  filter(case_site %in% c("Control", "Breast Ca.")) %>%
+  mutate(case_site = as.character(case_site)) %>%
+  count(case_site, education_self) %>%
+  group_by(case_site) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_education_self, aes(x = education_self, y = prop, fill = case_site)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Ca." = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Self-reported Education Level Distribution (Postmenopausal - New)",
+    x = "Education Level", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
 ```
 
 ##Relative risk model for postmenopausal women
@@ -1394,26 +2317,26 @@ sum(is.na(test_data$oc_ever))
 
 ## Categories for number of induced abortions
 ```{r}
-ref_data$totalabortion_cat = ref_data$count_abortion
-ref_data$totalabortion_cat[ref_data$count_abortion >= 2] = 2
-
-test_data$totalabortion_cat = test_data$count_abortion
-test_data$totalabortion_cat[test_data$count_abortion >= 2] = 2
-
-table(test_data$totalabortion_cat)
-sum(is.na(test_data$totalabortion_cat))
+# ref_data$totalabortion_cat = ref_data$count_abortion
+# ref_data$totalabortion_cat[ref_data$count_abortion >= 2] = 2
+# 
+# test_data$totalabortion_cat = test_data$count_abortion
+# test_data$totalabortion_cat[test_data$count_abortion >= 2] = 2
+# 
+# table(test_data$totalabortion_cat)
+# sum(is.na(test_data$totalabortion_cat))
 ```
 
 ## Categories for number of spontaneous abortions
 ```{r}
-ref_data$totalmiscarriage_cat = ref_data$count_miscarriage
-ref_data$totalmiscarriage_cat[ref_data$count_miscarriage >= 2] = 2
-
-test_data$totalmiscarriage_cat = test_data$count_miscarriage
-test_data$totalmiscarriage_cat[test_data$count_miscarriage >= 2] = 2
-
-table(test_data$totalmiscarriage_cat)
-sum(is.na(test_data$totalmiscarriage_cat))
+# ref_data$totalmiscarriage_cat = ref_data$count_miscarriage
+# ref_data$totalmiscarriage_cat[ref_data$count_miscarriage >= 2] = 2
+# 
+# test_data$totalmiscarriage_cat = test_data$count_miscarriage
+# test_data$totalmiscarriage_cat[test_data$count_miscarriage >= 2] = 2
+# 
+# table(test_data$totalmiscarriage_cat)
+# sum(is.na(test_data$totalmiscarriage_cat))
 ```
 
 ## Categories for duration of breastfeeding
@@ -1496,35 +2419,34 @@ sum(is.na(test_data$ratio))
 
 ## Age at menopause
 ```{r}
-ref_data$catmenopause = ref_data$mens_age_last
-ref_data$catmenopause[ref_data$mens_age_last <= 40] = 0
-ref_data$catmenopause[ref_data$mens_age_last > 40 & 
-                        ref_data$mens_age_last <= 45] = 1
-ref_data$catmenopause[ref_data$mens_age_last > 45 & 
-                        ref_data$mens_age_last <= 50] = 2
-ref_data$catmenopause[ref_data$mens_age_last > 50] = 3
+ref_data$catmenopause = ref_data$Age_at_men_stop
+ref_data$catmenopause[ref_data$Age_at_men_stop <= 40] = 0
+ref_data$catmenopause[ref_data$Age_at_men_stop > 40 & 
+                        ref_data$Age_at_men_stop <= 45] = 1
+ref_data$catmenopause[ref_data$Age_at_men_stop > 45 & 
+                        ref_data$Age_at_men_stop <= 50] = 2
+ref_data$catmenopause[ref_data$Age_at_men_stop > 50] = 3
 
-test_data$catmenopause = test_data$mens_age_last
-test_data$catmenopause[test_data$mens_age_last <= 40] = 0
-test_data$catmenopause[test_data$mens_age_last > 40 & 
-                        test_data$mens_age_last <= 45] = 1
-test_data$catmenopause[test_data$mens_age_last > 45 & 
-                        test_data$mens_age_last <= 50] = 2
-test_data$catmenopause[test_data$mens_age_last > 50] = 3
+test_data$catmenopause = test_data$Age_at_men_stop
+test_data$catmenopause[test_data$Age_at_men_stop <= 40] = 0
+test_data$catmenopause[test_data$Age_at_men_stop > 40 & 
+                        test_data$Age_at_men_stop <= 45] = 1
+test_data$catmenopause[test_data$Age_at_men_stop > 45 & 
+                        test_data$Age_at_men_stop <= 50] = 2
+test_data$catmenopause[test_data$Age_at_men_stop > 50] = 3
 
 table(test_data$catmenopause)
 sum(is.na(test_data$catmenopause))
 ```
 
 ## Reference dataset for premenopausal women
+#"totalabortion_cat","totalmiscarriage_cat",
 ```{r}
 ref_data_premeno = ref_data[ref_data$mentruation_status == 1,]
 ref_data_premeno = ref_data_premeno[,c("age","ageatfirstfulltermpreg_cat",
                                        "interval_menarche_firstbirth_cat",
                                        "fulltermpreg_cat",
                                        "oc_ever", "mean_brfeed_duration_cat",
-                                       "totalabortion_cat",
-                                       "totalmiscarriage_cat",
                                        "catht", "bmicat", "ratio")]
 
 ref_data_premeno = na.omit(ref_data_premeno)
@@ -1543,8 +2465,6 @@ test_data_premeno = test_data_premeno[,c("age","ageatfirstfulltermpreg_cat",
                                        "interval_menarche_firstbirth_cat",
                                        "fulltermpreg_cat",
                                        "oc_ever", "mean_brfeed_duration_cat",
-                                       "totalabortion_cat",
-                                       "totalmiscarriage_cat",
                                        "catht", "bmicat", "ratio")]
 
 #test_data_premeno = na.omit(test_data_premeno)
@@ -1556,11 +2476,11 @@ test_data_premeno = test_data_premeno[,!names(test_data_premeno) %in% "age"]
 ```
 
 ## Model formula for premenopausal women
+#as.factor(totalabortion_cat) + as.factor(totalmiscarriage_cat) + 
 ```{r}
 model.formula.premeno = case_site ~ as.factor(ageatfirstfulltermpreg_cat) + 
   interval_menarche_firstbirth_cat + as.factor(fulltermpreg_cat) + 
   oc_ever + as.factor(mean_brfeed_duration_cat) +
-  as.factor(totalabortion_cat) + as.factor(totalmiscarriage_cat) + 
   as.factor(catht) + as.factor(bmicat) * as.factor(ratio)
 ```
 
@@ -1589,15 +2509,15 @@ v5$name = "mean_brfeed_duration_cat"
 v5$type = "factor"
 v5$levels = c("1","2","3","4")
 
-v6 = list()
-v6$name = "totalabortion_cat"
-v6$type = "factor"
-v6$levels = c("0","1","2")
-
-v7 = list()
-v7$name = "totalmiscarriage_cat"
-v7$type = "factor"
-v7$levels = c("0","1","2")
+# v6 = list()
+# v6$name = "totalabortion_cat"
+# v6$type = "factor"
+# v6$levels = c("0","1","2")
+# 
+# v7 = list()
+# v7$name = "totalmiscarriage_cat"
+# v7$type = "factor"
+# v7$levels = c("0","1","2")
 
 v8 = list()
 v8$name = "catht"
@@ -1613,13 +2533,13 @@ v10 = list()
 v10$name = "ratio"
 v10$type = "factor"
 v10$levels = c("0","1","2")
-
-cov.info.premeno = list(v1,v2,v3,v4,v5,v6,v7,v8,v9,v10)
+#v6,v7,
+cov.info.premeno = list(v1,v2,v3,v4,v5,v8,v9,v10)
 ```
 
 ##Model log relative risks for premenopausal women
 ```{r}
-logRR_premeno = coef(model_premeno)[-c(1:10)]
+logRR_premeno = coef(model_premeno)[-c(1:7)]
 ```
 
 
@@ -1718,14 +2638,13 @@ text(x = 3, y = 1,
 
 
 ## Reference dataset for postmenopausal women
+#"totalabortion_cat","totalmiscarriage_cat",
 ```{r}
 ref_data_postmeno = ref_data[ref_data$mentruation_status == 2,]
 ref_data_postmeno = ref_data_postmeno[,c("age","ageatfirstfulltermpreg_cat",
                                          "interval_menarche_firstbirth_cat",
                                          "fulltermpreg_cat", "catmenopause",
                                          "oc_ever", "mean_brfeed_duration_cat",
-                                         "totalabortion_cat",
-                                         "totalmiscarriage_cat",
                                          "catht", "bmicat", "ratio")]
 
 ref_data_postmeno = na.omit(ref_data_postmeno)
@@ -1741,8 +2660,6 @@ test_data_postmeno = test_data_postmeno[,c("age","ageatfirstfulltermpreg_cat",
                                          "interval_menarche_firstbirth_cat",
                                          "fulltermpreg_cat", "catmenopause",
                                          "oc_ever", "mean_brfeed_duration_cat",
-                                         "totalabortion_cat",
-                                         "totalmiscarriage_cat",
                                          "catht", "bmicat", "ratio")]
 
 #test_data_postmeno = na.omit(test_data_postmeno)
@@ -1754,11 +2671,11 @@ test_data_postmeno = test_data_postmeno[,!names(test_data_postmeno) %in% "age"]
 ```
 
 ## Model formula for postmenopausal women
+#as.factor(totalabortion_cat) + as.factor(totalmiscarriage_cat) + 
 ```{r}
 model.formula.postmeno = case_site ~ as.factor(ageatfirstfulltermpreg_cat) + 
   interval_menarche_firstbirth_cat + as.factor(fulltermpreg_cat) + 
   as.factor(catmenopause) + oc_ever + as.factor(mean_brfeed_duration_cat) + 
-  as.factor(totalabortion_cat) + as.factor(totalmiscarriage_cat) + 
   as.factor(catht) + as.factor(bmicat) * as.factor(ratio)
 ```
 
@@ -1793,15 +2710,15 @@ v6$name = "mean_brfeed_duration_cat"
 v6$type = "factor"
 v6$levels = c("1","2","3","4")
 
-v7 = list()
-v7$name = "totalabortion_cat"
-v7$type = "factor"
-v7$levels = c("0","1","2")
-
-v8 = list()
-v8$name = "totalmiscarriage_cat"
-v8$type = "factor"
-v8$levels = c("0","1","2")
+# v7 = list()
+# v7$name = "totalabortion_cat"
+# v7$type = "factor"
+# v7$levels = c("0","1","2")
+# 
+# v8 = list()
+# v8$name = "totalmiscarriage_cat"
+# v8$type = "factor"
+# v8$levels = c("0","1","2")
 
 v9 = list()
 v9$name = "catht"
@@ -1818,13 +2735,13 @@ v11$name = "ratio"
 v11$type = "factor"
 v11$levels = c("0","1","2")
 
-
-cov.info.postmeno = list(v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11)
+#v6,v7,
+cov.info.postmeno = list(v1,v2,v3,v4,v5,v6,v9,v10,v11)
 ```
 
 ## Model log relative risks for postmenopausal women
 ```{r}
-logRR_postmeno = coef(model_postmeno)[-c(1:10)]
+logRR_postmeno = coef(model_postmeno)[-c(1:7)]
 ```
 
 ## Absolute risk distribution for postmenopausal women
