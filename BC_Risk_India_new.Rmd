@@ -33,7 +33,8 @@ data_old = read.dta13("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC
                   generate.factors = TRUE, nonint.factors = TRUE)
 data_new_meta = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/Meta_Data.xlsx")
 data_new_validation = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/Breast\ cancer\ _Validation\ data\ set.xlsx")
-
+data_DOE = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/data_new_meta_ids.xlsx")
+data_mmgy = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/mamogram\ data\ _24.5.2025.xlsx")
 #data_covariate_wise
 data_new_alcohol = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_25.09.2023.xlsx")
 data_new_alcohol_exlusive = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_exclusive_07.10.2023.xlsx")

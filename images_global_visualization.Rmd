@@ -10,32 +10,52 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 ```{r cars}
-# Load required libraries
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. Load libraries
+# ──────────────────────────────────────────────────────────────────────────────
 library(ggplot2)
 library(tidyr)
 library(dplyr)
+library(openxlsx)
+library(grid)    # for unit()
 
-# Create the data frame
-data <- read.csv("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/BC_data_new.csv")
-# Pivot to long format
-data_long <- pivot_longer(data,
-                          cols = -Registry..year.,
-                          names_to = "AgeGroup",
-                          values_to = "Incidence")
+# ──────────────────────────────────────────────────────────────────────────────
+# 2. Read + prepare nationwide data (same as before)
+# ──────────────────────────────────────────────────────────────────────────────
+data_nationwide <- read.xlsx(
+  "/Users/anaghchattopadhyay/Documents/Nilanjan Project/TMC_BCProject/Data/BC_Incidence_Rates.xlsx"
+)
 
-# Clean AgeGroup (remove "X" and replace "." with "-")
-data_long <- data_long %>%
+nationwide_plot <- data_nationwide %>%
+  mutate(
+    AgeMid = (age_start + age_end) / 2,
+    # force “75–80” midpoint to exactly 80
+    AgeMid = if_else(age_start == 75 & age_end == 80, 80, AgeMid),
+    # replace 0 with 0.1 so log10 never sees a true zero
+    rates_adj = if_else(rates == 0, 0.1, rates)
+  ) %>%
+  filter(!is.na(AgeMid), !is.na(rates_adj))
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. Read + pivot state‐wise data
+# ──────────────────────────────────────────────────────────────────────────────
+data <- read.csv(
+  "/Users/anaghchattopadhyay/Documents/Nilanjan Project/TMC_BCProject/Data/BC_data_new.csv"
+)
+
+data_long <- data %>%
+  pivot_longer(
+    cols      = -Registry..year.,
+    names_to  = "AgeGroup",
+    values_to = "Incidence"
+  ) %>%
   mutate(
     AgeGroup = gsub("^X", "", AgeGroup),
-    AgeGroup = gsub("\\.", "-", AgeGroup)
-  )
-
-# Create numeric age midpoint (used for plotting)
-data_long <- data_long %>%
-  mutate(
+    AgeGroup = gsub("\\.", "-", AgeGroup),
     AgeMid = case_when(
-      AgeGroup == "0-4" ~ 2.5,
-      AgeGroup == "5-9" ~ 7.5,
+      AgeGroup == "0-4"   ~ 2.5,
+      AgeGroup == "5-9"   ~ 7.5,
       AgeGroup == "10-14" ~ 12.5,
       AgeGroup == "15-19" ~ 17.5,
       AgeGroup == "20-24" ~ 22.5,
@@ -49,33 +69,192 @@ data_long <- data_long %>%
       AgeGroup == "60-64" ~ 62.5,
       AgeGroup == "65-69" ~ 67.5,
       AgeGroup == "70-74" ~ 72.5,
-      AgeGroup == "75+" ~ 80
-    )
-  )
+      AgeGroup == "75-"  ~ 80,
+      TRUE                ~ NA_real_
+    ),
+    Incidence_adj = if_else(Incidence == 0, 0.1, Incidence)
+  ) %>%
+  filter(!is.na(AgeMid), !is.na(Incidence_adj))
 
-library(grid)
 
-ggplot(data_long, aes(x = AgeMid, y = Incidence, color = Registry..year.)) +
-  geom_line(size = 1.1) +
-  labs(
-    title = "Breast Cancer Incidence Rate by Age Group",
-    x = "Age (years)",
-    y = "Incidence rate (per 100,000 population)"
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. Produce the plot with “log10 of the values” labeled on the y‐axis
+# ──────────────────────────────────────────────────────────────────────────────
+ggplot(data_long, aes(x = AgeMid, y = Incidence_adj, color = Registry..year.)) +
+  
+  # 4a) state/year‐specific curves
+  geom_line(linewidth = 1.1, na.rm = TRUE) +
+  
+  # 4b) nationwide reference (black dotted)
+  geom_line(
+    data        = nationwide_plot,
+    aes(x = AgeMid, y = rates_adj),
+    inherit.aes = FALSE,
+    color       = "black",
+    linetype    = "dotted",
+    linewidth   = 1,
+    na.rm       = TRUE
   ) +
+  
+  # 4c) labels and title
+  labs(
+    title = "Breast Cancer Incidence by Age Group\n(log scale, axis shows log-values)",
+    x     = "Age (years)",
+    y     = "log (Incidence rate per 100,000)"
+  ) +
+  
+  # 4d) theme tweeks
   theme_minimal(base_size = 13) +
   theme(
-    plot.title = element_text(face = "bold", size = 15, hjust = 0.5),
-    axis.title = element_text(size = 12),
-    axis.text = element_text(size = 10),
-    legend.position = "right",
-    legend.text = element_text(size = 8),
-    legend.title = element_blank(),
-    legend.key.size = unit(0.4, "lines"),
+    plot.title       = element_text(face = "bold", size = 15, hjust = 0.5),
+    axis.title       = element_text(size = 12),
+    axis.text        = element_text(size = 10),
+    legend.position  = "right",
+    legend.text      = element_text(size = 8),
+    legend.title     = element_blank(),
+    legend.key.size  = unit(0.4, "lines"),
     legend.spacing.y = unit(0.2, "lines"),
-    legend.margin = margin(l = 5),
+    legend.margin    = margin(l = 5),
     panel.grid.major = element_line(color = "gray85"),
     panel.grid.minor = element_blank()
   ) +
-  guides(color = guide_legend(ncol = 1, byrow = TRUE))
+  guides(color = guide_legend(ncol = 1, byrow = TRUE)) +
+  
+  # 4e) x‐axis from 0 to 80, no extra padding
+  scale_x_continuous(
+    limits = c(0, 80),
+    expand = c(0, 0)
+  ) + 
+  # 4f) log10 transform on y but label ticks with log10(values)
+  scale_y_continuous(
+    trans  = "log10",
+    breaks = c(0.1, 1, 10, 100, 1000),
+    labels = function(x) round(log10(x), 1)
+  )
 
 ```
+
+
+
+```{r}
+# ──────────────────────────────────────────────────────────────────────────────
+# Assumptions:
+# 1. `data_DOE` is your main data frame and has columns:
+#      - ID
+#      - DateOfInterview  (of class Date; if not, convert as shown)
+# 2. `data_mmgy` is your mammography data frame and has column:
+#      - ID  (matching the IDs in data_DOE)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# 1. Ensure DateOfInterview is of class Date. Adjust the format string if needed.
+if (!inherits(data_DOE$DateOfInterview, "Date")) {
+  data_DOE$DateOfInterview <- as.Date(
+    data_DOE$DateOfInterview,
+    format = "%Y-%m-%d"  # change if your dates use a different format
+  )
+}
+
+# 2. Subset data_DOE to only those rows whose ID appears in data_mmgy$ID
+doe_mmgy <- data_DOE[data_DOE$ID %in% data_mmgy$ID, ]
+
+# 3. Create 100 equally‐spaced breaks spanning the full range of DateOfInterview
+all_dates  <- data_DOE$DateOfInterview
+breaks_100 <- seq(
+  from = min(all_dates, na.rm = TRUE),
+  to   = max(all_dates, na.rm = TRUE),
+  length.out = 101
+)
+
+# 4. Compute histogram objects without plotting
+h_all  <- hist(all_dates,
+               breaks = breaks_100,
+               plot   = FALSE)
+h_mmgy <- hist(doe_mmgy$DateOfInterview,
+               breaks = breaks_100,
+               plot   = FALSE)
+
+# 5. Plot the "all interviews" histogram in light gray
+plot(h_all,
+     col    = "lightgray",
+     border = "white",
+     main   = "Histogram of DateOfInterview\n(All vs. Mammography linked)",
+     xlab   = "Date of Interview",
+     ylab   = "Count")
+
+# 6. Overlay the "mammography‐linked" histogram in semi‐transparent red
+plot(h_mmgy,
+     col    = rgb(1, 0, 0, alpha = 0.5),  # red with 50% opacity
+     border = NA,
+     add    = TRUE)
+
+# 7. Add a legend to distinguish the two distributions
+legend("topright",
+       legend = c("All interviews", "Mammography linked interviews"),
+       fill   = c("lightgray", rgb(1, 0, 0, alpha = 0.5)),
+       border = c("white", NA),
+       bty    = "n")
+
+
+```
+
+
+```{r}
+# ──────────────────────────────────────────────────────────────────────────────
+# Assumptions (same as before):
+# 1. data_DOE has columns “ID” and “DateOfInterview” (of class Date).
+# 2. data_mmgy has column “ID” (subset of data_DOE$ID).
+# ──────────────────────────────────────────────────────────────────────────────
+
+# 1. Coerce DateOfInterview to Date if needed
+if (!inherits(data_DOE$DateOfInterview, "Date")) {
+  data_DOE$DateOfInterview <- as.Date(
+    data_DOE$DateOfInterview,
+    format = "%Y-%m-%d"  # adjust if your dates use a different format
+  )
+}
+
+# 2. Subset data_DOE to just those with mammography records
+doe_mmgy <- data_DOE[data_DOE$ID %in% data_mmgy$ID, ]
+
+# 3. Order those mammography‐linked rows by DateOfInterview (newest first)
+ord_mmgy_desc <- order(doe_mmgy$DateOfInterview, decreasing = TRUE)
+
+# 4. Take the 400 latest mammography cases as validation
+val_mmgy      <- doe_mmgy[ord_mmgy_desc[1:400], ]
+
+# 5. Grab their IDs
+val_ids       <- val_mmgy$ID
+
+# 6. Define the new validation_set (all rows of data_DOE whose ID is in val_ids)
+validation_set <- data_DOE[data_DOE$ID %in% val_ids, ]
+
+# 7. Define the new training_set (all other rows of data_DOE)
+training_set   <- data_DOE[!data_DOE$ID %in% val_ids, ]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Now recompute the counts/percentages “how many in each set have mammography?”
+# ──────────────────────────────────────────────────────────────────────────────
+
+# (2) Count total rows in each subset
+n_val   <- nrow(validation_set)
+n_train <- nrow(training_set)
+
+# (3) Count how many of those have an ID in data_mmgy
+#     (validation_set should all have mammography, but we'll compute anyway)
+n_val_with_mmgy   <- sum(validation_set$ID %in% data_mmgy$ID, na.rm = TRUE)
+n_train_with_mmgy <- sum(training_set$ID   %in% data_mmgy$ID, na.rm = TRUE)
+
+# (4) Compute percentages
+perc_val   <- n_val_with_mmgy   / n_val   * 100
+perc_train <- n_train_with_mmgy / n_train * 100
+
+# (5) Print out results
+cat("Validation set:    ", n_val_with_mmgy, "of", n_val,
+    "have mammography (",
+    round(perc_val, 1), "% )\n", sep = " ")
+cat("Training set:      ", n_train_with_mmgy, "of", n_train,
+    "have mammography (",
+    round(perc_train, 1), "% )\n", sep = " ")
+
+```
+
