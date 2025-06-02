@@ -1,0 +1,3068 @@
+---
+title: "Breast Cancer Risk Prediction in Indian Population"
+author: "Parichoy Pal Choudhury"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Install the required packages and libraries
+```{r, message = FALSE}
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("iCARE")
+library(readstata13)
+library(plotrix)
+library(dplyr)
+library(gdata)
+library(openxlsx)
+library(brglm2)
+library(naniar)
+library(iCARE)
+library(purrr)
+library(janitor)
+```
+
+## Set the working directory to the location of the data and read the data
+```{r}
+
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
+data = read.dta13("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Questionnaire_28.04.2017.dta",
+                  generate.factors = TRUE, nonint.factors = TRUE)
+data_new_meta = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/Meta_Data.xlsx")
+data_new_validation = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/Breast\ cancer\ _Validation\ data\ set.xlsx")
+data_DOE = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/data_new_meta_ids.xlsx")
+data_mmgy = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/mamogram\ data\ _24.5.2025.xlsx")
+#data_covariate_wise
+data_new_alcohol = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_25.09.2023.xlsx")
+data_new_alcohol_exlusive = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_exclusive_07.10.2023.xlsx")
+data_new_alcohol_inclusive = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Alcohol/Alcohol_inclusive_07.10.2023.xlsx")
+data_new_anthropometry_ank = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Anthropometry/Anthropometry_13072023\ -\ Ankita.xlsx")
+data_new_anthropometry = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Anthropometry/Anthropometry_13072023.xlsx")
+data_new_chewing = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Chewing/Chewing_inclusive_03.07.2024_final.xlsx")
+data_new_demography = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Demographics/Demography_details_12034_17062023.xlsx")
+data_new_FH1 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Family_history_of_cancer/Fam_hist_CA_Br_core_10.08.2023..xlsx")
+data_new_FH = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Family_history_of_cancer/family_history_of_cancer_10.08.2023.xlsx")
+data_new_PMH = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Personal_medical/Personl_medical_history_27.03.2024_final.xlsx")
+data_new_reproductive = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Reproductive/Reproductive_25.07.2023_final.xlsx")
+data_new_residence1 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/Last_5_3_year_RU_05.10.2023.xlsx")
+data_new_residence2 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/Last_5_3_year_state_04.10.2023.xlsx")
+data_new_residence3 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/POB_duration_12.09.2023.xlsx")
+data_new_residence4 = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Residential_details/Residential_birth_current_final_17.06.2023.xlsx")
+data_new_smoking = read.xlsx("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data/Breast\ cancer\ data\ -\ CCE.TMC/28.03.2025_Risk\ prediction\ model\ data/Smoking/Smoking_Incl_24.6.2024.xlsx")
+```
+
+```{r}
+# ──────────────────────────────────────────────────────────────────────────────
+# Assumptions (same as before):
+# 1. data_DOE has columns “ID” and “DateOfInterview” (of class Date).
+# 2. data_mmgy has column “ID” (subset of data_DOE$ID).
+# ──────────────────────────────────────────────────────────────────────────────
+
+# 1. Coerce DateOfInterview to Date if needed
+if (!inherits(data_DOE$DateOfInterview, "Date")) {
+  data_DOE$DateOfInterview <- as.Date(
+    data_DOE$DateOfInterview,
+    format = "%Y-%m-%d"  # adjust if your dates use a different format
+  )
+}
+
+# 2. Subset data_DOE to just those with mammography records
+doe_mmgy <- data_DOE[data_DOE$ID %in% data_mmgy$ID, ]
+
+# 3. Order those mammography‐linked rows by DateOfInterview (newest first)
+ord_mmgy_desc <- order(doe_mmgy$DateOfInterview, decreasing = TRUE)
+
+# 4. Take the 400 latest mammography cases as validation
+val_mmgy      <- doe_mmgy[ord_mmgy_desc[1:400], ]
+
+# 5. Grab their IDs
+val_ids       <- val_mmgy$ID
+
+# 6. Define the new validation_set (all rows of data_DOE whose ID is in val_ids)
+validation_set <- data_DOE[data_DOE$ID %in% val_ids, ]
+
+# 7. Define the new training_set (all other rows of data_DOE)
+training_set   <- data_DOE[!data_DOE$ID %in% val_ids, ]
+
+```
+
+
+```{r}
+dataset_list <- list(
+  alcohol = data_new_alcohol,
+  alcohol_exclusive = data_new_alcohol_exlusive,
+  alcohol_inclusive = data_new_alcohol_inclusive,
+  anthropometry_ank = data_new_anthropometry_ank,
+  anthropometry = data_new_anthropometry,
+  chewing = data_new_chewing,
+  demography = data_new_demography,
+  FH1 = data_new_FH1,
+  FH2 = data_new_FH,
+  PMH = data_new_PMH,
+  reproductive = data_new_reproductive,
+  residence1 = data_new_residence1,
+  residence2 = data_new_residence2,
+  residence3 = data_new_residence3,
+  residence4 = data_new_residence4,
+  smoking = data_new_smoking
+)
+
+dataset_list <- map(dataset_list, ~clean_names(.x))
+all_columns <- c("id")
+repeated_columns <- list()
+final_data <- NULL
+
+for (name in names(dataset_list)) {
+  df <- dataset_list[[name]]
+  
+  # Remove duplicated columns (already present in previous datasets except 'id')
+  new_cols <- setdiff(names(df), "id")
+  duplicate_cols <- intersect(new_cols, all_columns)
+  
+  if (length(duplicate_cols) > 0) {
+    repeated_columns[[name]] <- duplicate_cols
+    df <- df %>% select(-all_of(duplicate_cols))
+  }
+  
+  all_columns <- unique(c(all_columns, names(df)))
+  
+  # First iteration
+  if (is.null(final_data)) {
+    final_data <- df
+  } else {
+    final_data <- full_join(final_data, df, by = "id")
+  }
+}
+
+cat("🔁 Repeated columns (not bound multiple times):\n")
+print(repeated_columns)
+
+cat("\nFinal merged dataset dimensions:\n")
+print(dim(final_data))
+
+final_data$totalabortion_cat <- data_DOE$Count_ab[
+  match(final_data$id, data_DOE$ID)
+]
+final_data$totalmiscarriage <- data_DOE$Count_mis[
+  match(final_data$id, data_DOE$ID)
+]
+
+final_data <- final_data[ final_data$id %in% training_set$ID, ]
+```
+
+## Categories for age at first full term pregnancy
+```{r}
+data$ageatfirstfulltermpreg_cat = data$ageatfirstfulltermpreg
+data$ageatfirstfulltermpreg_cat[which(data$ageatfirstfulltermpreg < 20)] = 1
+data$ageatfirstfulltermpreg_cat[which(data$ageatfirstfulltermpreg == 20 
+                                      | data$ageatfirstfulltermpreg == 21)] = 2
+data$ageatfirstfulltermpreg_cat[which(data$ageatfirstfulltermpreg == 22 
+                                      | data$ageatfirstfulltermpreg == 23)] = 3
+data$ageatfirstfulltermpreg_cat[which(data$ageatfirstfulltermpreg == 24 
+                                      | data$ageatfirstfulltermpreg == 25)] = 4
+data$ageatfirstfulltermpreg_cat[which(data$ageatfirstfulltermpreg >= 26)] = 5
+```
+
+## Categories for interval between menarche and full term pregnancy
+```{r}
+data$interval_menarche_firstbirth = data$ageatfirstfulltermpreg - 
+  data$whtagestartmensurating
+
+data$interval_menarche_firstbirth_cat = data$interval_menarche_firstbirth
+data$interval_menarche_firstbirth_cat[data$interval_menarche_firstbirth < 10] = 0
+data$interval_menarche_firstbirth_cat[data$interval_menarche_firstbirth >= 10] = 1
+
+```
+
+## Categories for number of full term pregnancies
+```{r}
+data$fulltermpreg_cat = data$fulltermpreg
+data$fulltermpreg_cat[data$fulltermpreg >= 4] = 4
+```
+
+## Categories for number of induced abortions
+```{r}
+data$totalabortion_cat = data$totalabortion
+data$totalabortion_cat[data$totalabortion >= 2] = 2
+```
+
+## Categories for number of spontaneous abortions
+```{r}
+data$totalmiscarriage_cat = data$totalmiscarriage
+data$totalmiscarriage_cat[data$totalmiscarriage >= 2] = 2
+```
+
+## Categories for duration of breastfeeding
+```{r}
+data$mean_brfeed_duration_cat = data$mean_brfeed_duration
+data$mean_brfeed_duration_cat[data$mean_brfeed_duration < 12] = 1
+data$mean_brfeed_duration_cat[data$mean_brfeed_duration >= 12 
+                              & data$mean_brfeed_duration < 24] = 2
+data$mean_brfeed_duration_cat[data$mean_brfeed_duration >= 24 
+                              & data$mean_brfeed_duration < 36] = 3
+data$mean_brfeed_duration_cat[data$mean_brfeed_duration >= 36] = 4
+```
+
+## Categories for duration of diabetes
+```{r}
+data$diabetic_years_cat = data$diabetic_years
+data$diabetic_years_cat[data$diabetes_YN == 0] = 0
+data$diabetic_years_cat[data$diabetic_years <= 5] = 1
+data$diabetic_years_cat[data$diabetic_years >= 6 
+                        & data$diabetic_years <= 10] = 2
+data$diabetic_years_cat[data$diabetic_years >= 11] = 3
+```
+
+## Collapsing the <=18.5 and 18.5-24.9 categories for BMI
+```{r}
+data$bmicat[data$bmicat == 0 | data$bmicat == 1] = 1
+```
+
+#######################################################################################
+## Categories for age at first full term pregnancy
+```{r}
+final_data$ageatfirstfulltermpreg_cat = final_data$age_fftp
+final_data$ageatfirstfulltermpreg_cat[which(final_data$ageatfirstfulltermpreg < 20)] = 1
+final_data$ageatfirstfulltermpreg_cat[which(final_data$ageatfirstfulltermpreg == 20 
+                                      | final_data$ageatfirstfulltermpreg == 21)] = 2
+final_data$ageatfirstfulltermpreg_cat[which(final_data$ageatfirstfulltermpreg == 22 
+                                      | final_data$ageatfirstfulltermpreg == 23)] = 3
+final_data$ageatfirstfulltermpreg_cat[which(final_data$ageatfirstfulltermpreg == 24 
+                                      | final_data$ageatfirstfulltermpreg == 25)] = 4
+final_data$ageatfirstfulltermpreg_cat[which(final_data$ageatfirstfulltermpreg >= 26)] = 5
+```
+
+## Categories for interval between menarche and full term pregnancy
+```{r}
+final_data$interval_menarche_firstbirth = final_data$age_fftp - 
+  final_data$age_menarche
+
+final_data$interval_menarche_firstbirth_cat = final_data$interval_menarche_firstbirth
+final_data$interval_menarche_firstbirth_cat[final_data$interval_menarche_firstbirth < 10] = 0
+final_data$interval_menarche_firstbirth_cat[final_data$interval_menarche_firstbirth >= 10] = 1
+
+```
+
+## Categories for number of full term pregnancies
+```{r}
+final_data$fulltermpreg_cat <- ifelse(final_data$parous == 0, 0, final_data$parity)
+final_data$fulltermpreg_cat[final_data$fulltermpreg_cat >= 4] <- 4
+```
+
+## Categories for number of induced abortions (Not present)
+```{r}
+final_data$totalabortion_cat = final_data$totalabortion
+final_data$totalabortion_cat[final_data$totalabortion >= 2] = 2
+```
+
+## Categories for number of spontaneous abortions (Not present)
+```{r}
+final_data$totalmiscarriage_cat = final_data$totalmiscarriage
+final_data$totalmiscarriage_cat[final_data$totalmiscarriage >= 2] = 2
+```
+
+## Categories for duration of breastfeeding
+```{r}
+final_data$mean_brfeed_duration_cat = final_data$breast_mos/final_data$fulltermpreg_cat
+final_data$mean_brfeed_duration_cat[final_data$mean_brfeed_duration < 12] = 1
+final_data$mean_brfeed_duration_cat[final_data$mean_brfeed_duration >= 12 
+                              & final_data$mean_brfeed_duration < 24] = 2
+final_data$mean_brfeed_duration_cat[final_data$mean_brfeed_duration >= 24 
+                              & final_data$mean_brfeed_duration < 36] = 3
+final_data$mean_brfeed_duration_cat[final_data$mean_brfeed_duration >= 36] = 4
+```
+
+## Categories for duration of diabetes
+```{r}
+final_data$diabetic_years_cat = final_data$diabetes_duration
+final_data$diabetic_years_cat[final_data$diabetes_yn == 0] = 0
+final_data$diabetic_years_cat[final_data$diabetes_duration <= 5] = 1
+final_data$diabetic_years_cat[final_data$diabetes_duration >= 6 
+                        & final_data$diabetes_duration <= 10] = 2
+final_data$diabetic_years_cat[final_data$diabetes_duration >= 11] = 3
+```
+
+## 2D:4D
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Create 2D:4D ratios
+final_data <- final_data %>%
+  mutate(
+    TwoD4D_left = left_index_finger / left_ring_finger,
+    TwoD4D_right = right_index_finger / right_ring_finger
+  )
+
+# Histogram for TwoD4D_left
+ggplot(final_data, aes(x = TwoD4D_left, fill = case_site)) +
+  geom_histogram(alpha = 0.6, bins = 100, position = "identity") +
+  scale_fill_manual(values = c("Control" = "#1f77b4", "Breast Ca." = "#d62728")) +
+  labs(title = "Histogram of 2D:4D Ratio (Left Hand)", x = "2D:4D (Left)", y = "Count") +
+  theme_minimal()
+
+# Histogram for TwoD4D_right
+ggplot(final_data, aes(x = TwoD4D_right, fill = case_site)) +
+  geom_histogram(alpha = 0.6, bins = 100, position = "identity") +
+  scale_fill_manual(values = c("Control" = "#1f77b4", "Breast Ca." = "#d62728")) +
+  labs(title = "Histogram of 2D:4D Ratio (Right Hand)", x = "2D:4D (Right)", y = "Count") +
+  theme_minimal()
+
+final_data <- final_data %>%
+  mutate(
+    TwoD4D_left_quart_cat = factor(ntile(TwoD4D_left, 4),
+                                   labels = c("Q1", "Q2", "Q3", "Q4")),
+    TwoD4D_right_quint_cat = factor(ntile(TwoD4D_right, 4),
+                                    labels = c("Q1", "Q2", "Q3", "Q4"))
+  )
+
+
+```
+
+```{r}
+# family_history_of_beo
+final_data$family_sitory_of_beo <- as.integer(
+  final_data$f_his_fst_bc == 1 |
+  final_data$f_his_fst_oc == 1 |
+  final_data$ca_end_yn == 1
+)
+```
+
+
+```{r}
+#############
+final_data$Avg_Height = ifelse(is.na(final_data$height_1), final_data$height_2, 
+                                ifelse(is.na(final_data$height_2), final_data$height_1, 
+                                       0.5 * (final_data$height_1 + final_data$height_2)))
+
+final_data$catht = final_data$Avg_Height
+final_data$catht[final_data$Avg_Height <= 150] = 0
+final_data$catht[final_data$Avg_Height > 150 & 
+                 final_data$Avg_Height <= 155] = 1
+final_data$catht[final_data$Avg_Height > 155 & 
+                 final_data$Avg_Height <= 160] = 2
+final_data$catht[final_data$Avg_Height > 160] = 3
+
+
+###############
+final_data$ratio = final_data$waist_to_hip_ratio
+final_data$ratio[final_data$waist_to_hip <= 0.84] = 0
+final_data$ratio[final_data$waist_to_hip > 0.84 & 
+                 final_data$waist_to_hip <= 0.94] = 1
+final_data$ratio[final_data$waist_to_hip > 0.94] = 2
+
+################
+final_data$case_site = as.factor(final_data$case_site)
+
+################
+final_data$last_5_yr_res_ru[!(final_data$last_5_yr_res_ru %in% c(1, 2))] <- NA
+
+################
+final_data$oc_ever[!(final_data$oc_ever %in% c(1, 0))] <- NA
+
+#################
+final_data$education_self <- ifelse(final_data$education_self > 4, 2, 1)
+
+#################
+final_data$catmenopause = final_data$mens_age_last
+final_data$catmenopause[final_data$mens_age_last <= 40] = 0
+final_data$catmenopause[final_data$mens_age_last > 40 & 
+                        final_data$mens_age_last <= 45] = 1
+final_data$catmenopause[final_data$mens_age_last > 45 & 
+                        final_data$mens_age_last <= 50] = 2
+final_data$catmenopause[final_data$mens_age_last > 50] = 3
+
+##################
+final_data$bmicat = final_data$bmi
+final_data$bmicat[final_data$bmi < 25] = 1
+final_data$bmicat[final_data$bmi >= 25 & final_data$bmi < 30] = 2
+final_data$bmicat[final_data$bmi >= 30] = 3
+
+###################
+
+unique(final_data$case_site)
+
+final_data$case_site <- factor(
+  final_data$case_site,
+  levels = c("Control", "Breast Ca."),
+  labels = c("Control", "Breast Cancer Case")
+)
+
+final_data$br <- final_data$case_site
+final_data$oc <- final_data$oc_ever
+final_data$menopause <- factor(
+  final_data$meno_stat,
+  levels = c(1, 2),
+  labels = c("Premenopausal", "Postmenopausal")
+)
+
+final_data$family_sitory_of_beo <- factor(
+  final_data$family_sitory_of_beo,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+```
+#######################################################################################
+
+```{r}
+# Define the columns to bind (must already exist in both data and final_data)
+cols_to_bind <- c(
+  "menopause",
+  "br",
+  "ageatfirstfulltermpreg_cat",
+  "interval_menarche_firstbirth_cat",
+  "fulltermpreg_cat",
+  "oc",
+  "mean_brfeed_duration_cat",
+  "totalabortion_cat",
+  "totalmiscarriage_cat",
+  "catht",
+  "bmicat",
+  "ratio", "family_sitory_of_beo"
+)
+
+# Bind the rows: take only those columns from final_data and append to data
+data <- rbind(
+  data[, cols_to_bind, drop = FALSE],
+  final_data[, cols_to_bind, drop = FALSE]
+)
+data <- unique(data)
+```
+
+
+```{r}
+# Function to compute NA percentage for a given group
+compute_na_pct <- function(data, variable, br_value, menopause_status) {
+  subset_data <- data[data$br == br_value & data$menopause == menopause_status, ]
+  total_n <- nrow(subset_data)
+  na_n <- sum(is.na(subset_data[[variable]]))
+  na_pct <- round(100 * na_n / total_n, 2)
+  return(na_pct)
+}
+
+# Variables to check
+vars <- c("ageatfirstfulltermpreg_cat", "interval_menarche_firstbirth_cat",
+          "fulltermpreg_cat", "oc", "mean_brfeed_duration_cat",
+          "totalabortion_cat", "totalmiscarriage_cat", "catht", "bmicat", "ratio", "family_sitory_of_beo")
+
+# Initialize an empty data frame to store results
+summary_df <- data.frame(variable = vars)
+
+# Add columns for each group combination
+summary_df$Control_Premenopausal <- sapply(vars, function(v) compute_na_pct(data, v, "Control", "premenopausal"))
+summary_df$Control_Postmenopausal <- sapply(vars, function(v) compute_na_pct(data, v, "Control", "postmenopausal"))
+summary_df$Case_Premenopausal <- sapply(vars, function(v) compute_na_pct(data, v, "Breast Cancer Case", "premenopausal"))
+summary_df$Case_Postmenopausal <- sapply(vars, function(v) compute_na_pct(data, v, "Breast Cancer Case", "postmenopausal"))
+
+# View the result
+print(summary_df)
+
+```
+
+## Subset the data to pre-menopausal women
+```{r}
+data_premeno = data[which(as.character(data$menopause) == "premenopausal"),]
+```
+
+## Number of cases and controls
+```{r}
+table(data_premeno$br)
+```
+
+## Number and proportion of risk factors among controls and cases
+
+## Age at first full term pregnancy
+```{r}
+table(data_premeno$ageatfirstfulltermpreg_cat
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$ageatfirstfulltermpreg_cat
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$ageatfirstfulltermpreg_cat
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$ageatfirstfulltermpreg_cat
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$ageatfirstfulltermpreg_cat
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$ageatfirstfulltermpreg_cat
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+
+library(dplyr)
+library(ggplot2)
+
+data_premeno %>%
+  filter(br %in% c("Breast Cancer Case", "Control")) %>%
+  mutate(br = factor(br, levels = c("Control", "Breast Cancer Case"))) %>%  # Reversed
+  count(br, ageatfirstfulltermpreg_cat) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = ageatfirstfulltermpreg_cat, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(0.7), width = 0.6) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.7), vjust = -0.4, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Age at First Full-Term Pregnancy (premeno - Old)",
+    x = "Age Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+
+```
+
+## Interval between menarche and first full term pregnancy
+```{r}
+table(data_premeno$interval_menarche_firstbirth_cat
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$interval_menarche_firstbirth_cat
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$interval_menarche_firstbirth_cat
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$interval_menarche_firstbirth_cat
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$interval_menarche_firstbirth_cat
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$interval_menarche_firstbirth_cat
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+
+# Prepare the data
+plot_data_premeno_br_interval <- data_premeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, interval_menarche_firstbirth_cat) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_premeno_br_interval, aes(x = interval_menarche_firstbirth_cat, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +  # Adjust colors as needed
+  labs(
+    title = "Interval between Menarche and First Birth (Pre Meno, Old)",
+    x = "Interval Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## Number of full term pregnancies
+```{r}
+table(data_premeno$fulltermpreg_cat
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$fulltermpreg_cat
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$fulltermpreg_cat
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$fulltermpreg_cat
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$fulltermpreg_cat
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$fulltermpreg_cat
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+
+# Prepare the data
+plot_data_premeno_fullpreg <- data_premeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, fulltermpreg_cat) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_premeno_fullpreg, aes(x = fulltermpreg_cat, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +  # Adjust colors as needed
+  labs(
+    title = "Full-Term Pregnancy Category (Pre Meno, Old)",
+    x = "Full-Term Pregnancy Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## OC Use
+```{r}
+table(data_premeno$oc
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$oc
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$oc
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$oc
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$oc
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$oc
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+
+# Prepare the data
+plot_data_premeno_oc <- data_premeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, oc) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_premeno_oc, aes(x = oc, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +  # Adjust colors as needed
+  labs(
+    title = "Oral Contraceptive Use (Pre Meno, Old)",
+    x = "Oral Contraceptive Use", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## Duration of breast-feeding
+```{r}
+table(data_premeno$mean_brfeed_duration_cat
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$mean_brfeed_duration_cat
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$mean_brfeed_duration_cat
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$mean_brfeed_duration_cat
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$mean_brfeed_duration_cat
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$mean_brfeed_duration_cat
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+
+# Prepare the data
+plot_data_premeno_brfeed <- data_premeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, mean_brfeed_duration_cat) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_premeno_brfeed, aes(x = mean_brfeed_duration_cat, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +  # Adjust colors as needed
+  labs(
+    title = "Mean Breastfeeding Duration Category (Pre Meno, Old)",
+    x = "Breastfeeding Duration Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## Number of induced abortions
+```{r}
+table(data_premeno$totalabortion_cat
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$totalabortion_cat
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$totalabortion_cat
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$totalabortion_cat
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$totalabortion_cat
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$totalabortion_cat
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+```
+
+## Number of spontaneous abortions
+```{r}
+table(data_premeno$totalmiscarriage_cat
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$totalmiscarriage_cat
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$totalmiscarriage_cat
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$totalmiscarriage_cat
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$totalmiscarriage_cat
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$totalmiscarriage_cat
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+```
+Q. (Doesn't make sense!)
+## Family history of breast, endometrial and ovarian cancer 
+```{r}
+table(data_premeno$family_sitory_of_beo
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$family_sitory_of_beo
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$family_sitory_of_beo
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$family_sitory_of_beo
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$family_sitory_of_beo
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$family_sitory_of_beo
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+
+library(ggplot2)
+library(dplyr)
+
+
+
+# Prepare data for family_sitory_of_beo (Premeno)
+plot_data_family_history <- data_premeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, family_sitory_of_beo) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_family_history, aes(x = family_sitory_of_beo, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Family History of Breast/Ovarian Cancer (Premeno - old)",
+    x = "Family History", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## BMI
+```{r}
+table(data_premeno$bmicat
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$bmicat
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$bmicat
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$bmicat
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$bmicat
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$bmicat
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+
+# Prepare data for bmicat (Premeno)
+plot_data_bmicat <- data_premeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, bmicat) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_bmicat, aes(x = bmicat, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "BMI Category (Premeno - old)",
+    x = "BMI Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## Height
+```{r}
+table(data_premeno$catht
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$catht
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$catht
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$catht
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$catht
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$catht
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+
+# Prepare data for catht (Premeno)
+plot_data_catht <- data_premeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, catht) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_catht, aes(x = catht, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Height Category (Premeno - old)",
+    x = "Height Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## Waist-to-hip ratio
+```{r}
+table(data_premeno$ratio
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$ratio
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$ratio
+                 [as.character(data_premeno$br) == "Control"]))
+
+table(data_premeno$ratio
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$ratio
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$ratio
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+
+# Prepare data for ratio (Premeno)
+plot_data_ratio <- data_premeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, ratio) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_ratio, aes(x = ratio, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "WHR Category (Premeno - old)",  # Change title as needed
+    x = "Waist-Hip Ratio Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## BMI and WHR interaction
+```{r}
+table(data_premeno$bmicat
+      [as.character(data_premeno$br) == "Control"], 
+      data_premeno$ratio
+      [as.character(data_premeno$br) == "Control"])
+sum(table(data_premeno$bmicat
+          [as.character(data_premeno$br) == "Control"], 
+          data_premeno$ratio
+          [as.character(data_premeno$br) == "Control"]))
+prop.table(table(data_premeno$bmicat
+                 [as.character(data_premeno$br) == "Control"], 
+                 data_premeno$ratio
+                 [as.character(data_premeno$br) == "Control"]))
+
+
+table(data_premeno$bmicat
+      [as.character(data_premeno$br) == "Breast Cancer Case"], 
+      data_premeno$ratio
+      [as.character(data_premeno$br) == "Breast Cancer Case"])
+sum(table(data_premeno$bmicat
+          [as.character(data_premeno$br) == "Breast Cancer Case"], 
+          data_premeno$ratio
+          [as.character(data_premeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_premeno$bmicat
+                 [as.character(data_premeno$br) == "Breast Cancer Case"], 
+                 data_premeno$ratio
+                 [as.character(data_premeno$br) == "Breast Cancer Case"]))
+```
+
+## Categorical age at enrollment
+```{r}
+# table(data_premeno$agecode
+#       [as.character(data_premeno$br) == "Control"])
+# sum(table(data_premeno$agecode
+#           [as.character(data_premeno$br) == "Control"]))
+# prop.table(table(data_premeno$agecode
+#                  [as.character(data_premeno$br) == "Control"]))
+# 
+# table(data_premeno$agecode
+#       [as.character(data_premeno$br) == "Breast Cancer Case"])
+# sum(table(data_premeno$agecode
+#           [as.character(data_premeno$br) == "Breast Cancer Case"]))
+# prop.table(table(data_premeno$agecode
+#                  [as.character(data_premeno$br) == "Breast Cancer Case"]))
+```
+
+## Geographical location
+```{r}
+# table(data_premeno$area
+#       [as.character(data_premeno$br) == "Control"])
+# sum(table(data_premeno$area
+#           [as.character(data_premeno$br) == "Control"]))
+# prop.table(table(data_premeno$area
+#                  [as.character(data_premeno$br) == "Control"]))
+# 
+# table(data_premeno$area
+#       [as.character(data_premeno$br) == "Breast Cancer Case"])
+# sum(table(data_premeno$area
+#           [as.character(data_premeno$br) == "Breast Cancer Case"]))
+# prop.table(table(data_premeno$area
+#                  [as.character(data_premeno$br) == "Breast Cancer Case"]))
+# 
+# # Prepare data for area (Premeno)
+# plot_data_area <- data_premeno %>%
+#   filter(br %in% c("Control", "Breast Cancer Case")) %>%
+#   mutate(br = as.character(br)) %>%
+#   count(br, area) %>%
+#   group_by(br) %>%
+#   mutate(prop = n / sum(n)) %>%
+#   ungroup()
+# 
+# # Plot
+# ggplot(plot_data_area, aes(x = area, y = prop, fill = br)) +
+#   geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+#   geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+#             position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+#   scale_y_continuous(labels = scales::percent_format()) +
+#   scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+#   labs(
+#     title = "Residence Area (Premeno - old)",
+#     x = "Area", y = "Proportion", fill = "Group"
+#   ) +
+#   theme_minimal(base_size = 14) +
+#   theme(
+#     plot.title = element_text(face = "bold", hjust = 0.5),
+#     legend.position = "top"
+#   )
+
+```
+(Important factor to avoid biased sample)
+## Rural/urban based on first 20 years
+```{r}
+# table(data_premeno$residancefirsttwentyyears
+#       [as.character(data_premeno$br) == "Control"])
+# sum(table(data_premeno$residancefirsttwentyyears
+#           [as.character(data_premeno$br) == "Control"]))
+# prop.table(table(data_premeno$residancefirsttwentyyears
+#                  [as.character(data_premeno$br) == "Control"]))
+# 
+# table(data_premeno$residancefirsttwentyyears
+#       [as.character(data_premeno$br) == "Breast Cancer Case"])
+# sum(table(data_premeno$residancefirsttwentyyears
+#           [as.character(data_premeno$br) == "Breast Cancer Case"]))
+# prop.table(table(data_premeno$residancefirsttwentyyears
+#                  [as.character(data_premeno$br) == "Breast Cancer Case"]))
+# 
+# # Prepare data for residancefirsttwentyyears (Premeno)
+# plot_data_residence <- data_premeno %>%
+#   filter(br %in% c("Control", "Breast Cancer Case")) %>%
+#   mutate(br = as.character(br)) %>%
+#   count(br, residancefirsttwentyyears) %>%
+#   group_by(br) %>%
+#   mutate(prop = n / sum(n)) %>%
+#   ungroup()
+# 
+# # Plot
+# ggplot(plot_data_residence, aes(x = residancefirsttwentyyears, y = prop, fill = br)) +
+#   geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+#   geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+#             position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+#   scale_y_continuous(labels = scales::percent_format()) +
+#   scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+#   labs(
+#     title = "Residence in First 20 Years (Premeno - old)",
+#     x = "Residence Type", y = "Proportion", fill = "Group"
+#   ) +
+#   theme_minimal(base_size = 14) +
+#   theme(
+#     plot.title = element_text(face = "bold", hjust = 0.5),
+#     legend.position = "top"
+#   )
+
+```
+
+## Binary education status: <8 years and >= 8 years of schooling
+```{r}
+# table(data_premeno$ed
+#       [as.character(data_premeno$br) == "Control"])
+# sum(table(data_premeno$ed
+#           [as.character(data_premeno$br) == "Control"]))
+# prop.table(table(data_premeno$ed
+#                  [as.character(data_premeno$br) == "Control"]))
+# 
+# table(data_premeno$ed
+#       [as.character(data_premeno$br) == "Breast Cancer Case"])
+# sum(table(data_premeno$ed
+#           [as.character(data_premeno$br) == "Breast Cancer Case"]))
+# prop.table(table(data_premeno$ed
+#                  [as.character(data_premeno$br) == "Breast Cancer Case"]))
+# 
+# # Prepare data for education (ed) among Premeno
+# plot_data_education <- data_premeno %>%
+#   filter(br %in% c("Control", "Breast Cancer Case")) %>%
+#   mutate(br = as.character(br)) %>%
+#   count(br, ed) %>%
+#   group_by(br) %>%
+#   mutate(prop = n / sum(n)) %>%
+#   ungroup()
+# 
+# # Plot
+# ggplot(plot_data_education, aes(x = ed, y = prop, fill = br)) +
+#   geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+#   geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+#             position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+#   scale_y_continuous(labels = scales::percent_format()) +
+#   scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+#   labs(
+#     title = "Education Level (Premeno - old)",
+#     x = "Education Category", y = "Proportion", fill = "Group"
+#   ) +
+#   theme_minimal(base_size = 14) +
+#   theme(
+#     plot.title = element_text(face = "bold", hjust = 0.5),
+#     legend.position = "top"
+#   )
+
+```
+
+## Relative risk model for premenopausal women
+```{r}
+model_premeno = glm(br ~ as.factor(ageatfirstfulltermpreg_cat)
+                    + interval_menarche_firstbirth_cat   
+                    + as.factor(fulltermpreg_cat)
+                    + oc + as.factor(mean_brfeed_duration_cat)
+                    + as.factor(totalabortion_cat)
+                    + as.factor(totalmiscarriage_cat)
+                    + as.factor(catht) 
+                    + as.factor(bmicat) * as.factor(ratio),
+                    data = data_premeno, family = binomial(link=logit), 
+                    na.action = na.omit)
+
+# as.factor(agecode) + as.factor(area) 
+#                     + as.factor(ed) + as.factor(residancefirsttwentyyears)
+#                     + 
+
+cbind(exp(coef(model_premeno)),exp(confint(model_premeno)))
+
+model.frame(model_premeno) |> nrow()
+nrow(data_premeno)
+
+summary(model_premeno)
+```
+
+##Joint association of BMI and WHR#####
+```{r}
+#Log relative risks and variances
+estimate = coef(model_premeno)[c("as.factor(bmicat)2","as.factor(bmicat)3",
+                                 "as.factor(ratio)1","as.factor(ratio)2",
+                                 "as.factor(bmicat)2:as.factor(ratio)1",
+                                 "as.factor(bmicat)3:as.factor(ratio)1",
+                                 "as.factor(bmicat)2:as.factor(ratio)2",
+                                 "as.factor(bmicat)3:as.factor(ratio)2")]
+
+variance = vcov(model_premeno)[c("as.factor(bmicat)2","as.factor(bmicat)3",
+                                 "as.factor(ratio)1","as.factor(ratio)2",
+                                 "as.factor(bmicat)2:as.factor(ratio)1",
+                                 "as.factor(bmicat)3:as.factor(ratio)1",
+                                 "as.factor(bmicat)2:as.factor(ratio)2",
+                                 "as.factor(bmicat)3:as.factor(ratio)2"),
+                               c("as.factor(bmicat)2","as.factor(bmicat)3",
+                                 "as.factor(ratio)1","as.factor(ratio)2",
+                                 "as.factor(bmicat)2:as.factor(ratio)1",
+                                 "as.factor(bmicat)3:as.factor(ratio)1",
+                                 "as.factor(bmicat)2:as.factor(ratio)2",
+                                 "as.factor(bmicat)3:as.factor(ratio)2")]
+
+#BMI < 24.9, WHR < 0.84
+
+RR1 = 1
+
+ci1 = c(1,1)
+
+#BMI < 24.9, WHR 0.85-0.94
+
+RR2 = exp(coef(model_premeno))["as.factor(ratio)1"]
+
+ci2 = exp(confint(model_premeno))["as.factor(ratio)1",]
+#BMI < 24.9, WHR >= 0.95
+
+RR3 = exp(coef(model_premeno))["as.factor(ratio)2"]
+
+ci3 = exp(confint(model_premeno))["as.factor(ratio)2",]
+
+#BMI 25-29.9, WHR < 0.84
+
+RR4 = exp(coef(model_premeno))["as.factor(bmicat)2"]
+
+ci4 = exp(confint(model_premeno))["as.factor(bmicat)2",]
+
+#BMI 25-29.9, WHR 0.85-0.94
+
+RR5 = exp(coef(model_premeno))["as.factor(bmicat)2"] * 
+  exp(coef(model_premeno))["as.factor(ratio)1"] * 
+  exp(coef(model_premeno))["as.factor(bmicat)2:as.factor(ratio)1"]
+
+v5 = c(1,0,1,0,1,0,0,0)
+
+RR5 = exp(v5 %*% estimate)
+
+sd5 = sqrt(v5 %*% variance %*% v5)
+
+ci5 = exp(c(log(RR5) - 1.96 * sd5, log(RR5) + 1.96 * sd5))
+
+#BMI 25-29.9, WHR >= 0.95
+
+RR6 = exp(coef(model_premeno))["as.factor(bmicat)2"] * 
+  exp(coef(model_premeno))["as.factor(ratio)2"] * 
+  exp(coef(model_premeno))["as.factor(bmicat)2:as.factor(ratio)2"]
+
+v6 = c(1,0,0,1,0,0,1,0)
+
+RR6 = exp(v6 %*% estimate)
+
+sd6 = sqrt(v6 %*% variance %*% v6)
+
+ci6 = exp(c(log(RR6) - 1.96 * sd6, log(RR6) + 1.96 * sd6))
+
+#BMI >= 30, WHR < 0.84
+
+RR7 = exp(coef(model_premeno))["as.factor(bmicat)3"]
+
+ci7 = exp(confint(model_premeno))["as.factor(bmicat)3",]
+
+#BMI >= 30, WHR 0.85-0.94
+
+RR8 = exp(coef(model_premeno))["as.factor(bmicat)3"] * 
+  exp(coef(model_premeno))["as.factor(ratio)1"] * 
+  exp(coef(model_premeno))["as.factor(bmicat)3:as.factor(ratio)1"]
+
+v8 = c(0,1,1,0,0,1,0,0)
+
+RR8 = exp(v8 %*% estimate)
+
+sd8 = sqrt(v8 %*% variance %*% v8)
+
+ci8 = exp(c(log(RR8) - 1.96 * sd8, log(RR8) + 1.96 * sd8))
+
+#BMI >= 30, WHR >= 0.95
+
+RR9 = exp(coef(model_premeno))["as.factor(bmicat)3"] * 
+  exp(coef(model_premeno))["as.factor(ratio)2"] * 
+  exp(coef(model_premeno))["as.factor(bmicat)3:as.factor(ratio)2"]
+
+v9 = c(0,1,0,1,0,0,0,1)
+
+RR9 = exp(v9 %*% estimate)
+
+sd9 = sqrt(v9 %*% variance %*% v9)
+
+ci9 = exp(c(log(RR9) - 1.96 * sd9, log(RR9) + 1.96 * sd9))
+
+
+BMI_WHR_Premeno = cbind(c(RR1,RR2,RR3,RR4,RR5,RR6,RR7,RR8,RR9),
+                        rbind(ci1,ci2,ci3,ci4,ci5,ci6,ci7,ci8,ci9))
+
+rownames(BMI_WHR_Premeno)[c(1,5,6,8,9)] = c("Ref","as.factor(bmicat)2:as.factor(ratio)1",
+                                         "as.factor(bmicat)2:as.factor(ratio)2",
+                                         "as.factor(bmicat)3:as.factor(ratio)1",
+                                         "as.factor(bmicat)2:as.factor(ratio)2")
+
+#pdf(file = "BMI_WHR_Interaction_Premeno")
+plotCI(x = BMI_WHR_Premeno[,1], ui = BMI_WHR_Premeno[,3], li = BMI_WHR_Premeno[,2],xlab = "",
+       ylab = "Joint Relative Risk",pch=16,lwd = 2, xaxt = "n", 
+       col = c(rep("red",3),rep("blue",3),rep("green",3)))
+
+mtext(expression("BMI"<="24.9"), side = 3, line = 1, at = 2, col = "red")
+mtext(expression("BMI 25-29.9"), side = 3, line = 1, at = 5, col = "blue")
+mtext(expression("BMI">="30"), side = 3, line = 1, at = 8, col = "green")
+
+mtext(rep(expression("WHR"<=0.84),3), side = 1, line = 0.2, las = 2, 
+      at = c(1,4,7), col = c("red","blue","green"), cex = 0.7)
+mtext(rep("WHR 0.85-0.94",3), side = 1, line = 0.2, las = 2, 
+      at = c(2,5,8), col = c("red","blue","green"), cex = 0.7)
+mtext(rep(expression("WHR">=0.95),3), side = 1, line = 0.2, las = 2, 
+      at = c(3,6,9), col = c("red","blue","green"), cex = 0.7)
+#dev.off()
+
+```
+
+## Subset the data to post-menopausal women
+```{r}
+data_postmeno = data[which(as.character(data$menopause) == "postmenopausal"),]
+```
+## Number of cases and controls
+```{r}
+table(data_postmeno$br)
+```
+
+## Number and proportion of risk factors among controls
+
+## Age at first full term pregnancy
+```{r}
+table(data_postmeno$ageatfirstfulltermpreg_cat
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$ageatfirstfulltermpreg_cat
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$ageatfirstfulltermpreg_cat
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$ageatfirstfulltermpreg_cat
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$ageatfirstfulltermpreg_cat
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$ageatfirstfulltermpreg_cat
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+
+library(dplyr)
+library(ggplot2)
+
+# Prepare the data
+plot_data_post_br <- data_postmeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, ageatfirstfulltermpreg_cat) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_post_br, aes(x = ageatfirstfulltermpreg_cat, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +  # Swap colors if needed
+  labs(
+    title = "Age at First Full-Term Pregnancy(Postmeno - Old)",
+    x = "Age Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## Interval between menarche and first full term pregnancy
+```{r}
+table(data_postmeno$interval_menarche_firstbirth_cat
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$interval_menarche_firstbirth_cat
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$interval_menarche_firstbirth_cat
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$interval_menarche_firstbirth_cat
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$interval_menarche_firstbirth_cat
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$interval_menarche_firstbirth_cat
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+
+# Prepare the data
+plot_data_post_br_interval <- data_postmeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, interval_menarche_firstbirth_cat) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_post_br_interval, aes(x = interval_menarche_firstbirth_cat, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +  # Adjust colors as needed
+  labs(
+    title = "Interval between Menarche and First Birth (PostMeno, Old)",
+    x = "Interval Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## Number of full term pregnancies
+```{r}
+table(data_postmeno$fulltermpreg_cat
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$fulltermpreg_cat
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$fulltermpreg_cat
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$fulltermpreg_cat
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$fulltermpreg_cat
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$fulltermpreg_cat
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+
+# Prepare the data
+plot_data_postmeno_fullterm <- data_postmeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, fulltermpreg_cat) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_postmeno_fullterm, aes(x = fulltermpreg_cat, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Number of Full-Term Pregnancies (Postmeno, Old)",
+    x = "Full-Term Pregnancy Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## OC Use
+```{r}
+table(data_postmeno$oc
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$oc
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$oc
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$oc
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$oc
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$oc
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+
+# Prepare data
+plot_data_postmeno_oc <- data_postmeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, oc) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_postmeno_oc, aes(x = oc, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(width = 0.8),
+            vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Oral Contraceptive Use (Postmeno, Old)",
+    x = "OC Use", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+##Age at menopause
+```{r}
+# table(data_postmeno$catmenopause
+#       [as.character(data_postmeno$br) == "Control"])
+# sum(table(data_postmeno$catmenopause
+#           [as.character(data_postmeno$br) == "Control"]))
+# prop.table(table(data_postmeno$catmenopause
+#                  [as.character(data_postmeno$br) == "Control"]))
+# 
+# table(data_postmeno$catmenopause
+#       [as.character(data_postmeno$br) == "Breast Cancer Case"])
+# sum(table(data_postmeno$catmenopause
+#           [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+# prop.table(table(data_postmeno$catmenopause
+#                  [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+# 
+# # Prepare data
+# plot_data_catmeno <- data_postmeno %>%
+#   filter(br %in% c("Control", "Breast Cancer Case")) %>%
+#   mutate(br = as.character(br)) %>%
+#   count(br, catmenopause) %>%
+#   group_by(br) %>%
+#   mutate(prop = n / sum(n)) %>%
+#   ungroup()
+# 
+# # Plot
+# ggplot(plot_data_catmeno, aes(x = catmenopause, y = prop, fill = br)) +
+#   geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+#   geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+#             position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+#   scale_y_continuous(labels = scales::percent_format()) +
+#   scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+#   labs(
+#     title = "Type of Menopause (Postmeno, Old)",
+#     x = "Menopause Category", y = "Proportion", fill = "Group"
+#   ) +
+#   theme_minimal(base_size = 14) +
+#   theme(
+#     plot.title = element_text(face = "bold", hjust = 0.5),
+#     legend.position = "top"
+#   )
+
+```
+
+## Duration of breast-feeding
+```{r}
+table(data_postmeno$mean_brfeed_duration_cat
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$mean_brfeed_duration_cat
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$mean_brfeed_duration_cat
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$mean_brfeed_duration_cat
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$mean_brfeed_duration_cat
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$mean_brfeed_duration_cat
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+
+# Prepare data
+plot_data_bf <- data_postmeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, mean_brfeed_duration_cat) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_bf, aes(x = mean_brfeed_duration_cat, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Mean Breastfeeding Duration (Postmeno, Old)",
+    x = "Breastfeeding Duration Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## Number of induced abortions
+```{r}
+table(data_postmeno$totalabortion_cat
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$totalabortion_cat
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$totalabortion_cat
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$totalabortion_cat
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$totalabortion_cat
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$totalabortion_cat
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+```
+
+## Number of spontaneous abortions
+```{r}
+table(data_postmeno$totalmiscarriage_cat
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$totalmiscarriage_cat
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$totalmiscarriage_cat
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$totalmiscarriage_cat
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$totalmiscarriage_cat
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$totalmiscarriage_cat
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+```
+(why no differential family history)
+## Family history of breast, endometrial and ovarian cancer 
+```{r}
+table(data_postmeno$family_sitory_of_beo
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$family_sitory_of_beo
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$family_sitory_of_beo
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$family_sitory_of_beo
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$family_sitory_of_beo
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$family_sitory_of_beo
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+
+# Prepare data for family history (Postmenopausal - Old)
+plot_data_family_history_old <- data_postmeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, family_sitory_of_beo) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_family_history_old, aes(x = family_sitory_of_beo, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Family History of Breast/Ovarian Cancer (Postmenopausal - Old)",
+    x = "Family History", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## BMI
+```{r}
+table(data_postmeno$bmicat
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$bmicat
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$bmicat
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$bmicat
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$bmicat
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$bmicat
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+
+# Prepare data for BMI category (Postmenopausal - Old)
+plot_data_bmicat_old <- data_postmeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, bmicat) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_bmicat_old, aes(x = bmicat, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "BMI Category (Postmenopausal - Old)",
+    x = "BMI Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## Height
+```{r}
+table(data_postmeno$catht
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$catht
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$catht
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$catht
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$catht
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$catht
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+
+# Prepare data for catht (Postmenopausal - Old)
+plot_data_catht_old <- data_postmeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, catht) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_catht_old, aes(x = catht, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Cat-height Category (Postmenopausal - Old)",
+    x = "Cat-height Category", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+## Waist-to-hip ratio
+```{r}
+table(data_postmeno$ratio
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$ratio
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$ratio
+                 [as.character(data_postmeno$br) == "Control"]))
+
+table(data_postmeno$ratio
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$ratio
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$ratio
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+
+# Prepare data for ratio (Postmenopausal - Old)
+plot_data_ratio_old <- data_postmeno %>%
+  filter(br %in% c("Control", "Breast Cancer Case")) %>%
+  mutate(br = as.character(br)) %>%
+  count(br, ratio) %>%
+  group_by(br) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Plot
+ggplot(plot_data_ratio_old, aes(x = ratio, y = prop, fill = br)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_dodge(0.8), vjust = -0.3, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) +
+  labs(
+    title = "Ratio Distribution (Postmenopausal - Old)",
+    x = "Ratio", y = "Proportion", fill = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "top"
+  )
+
+```
+
+<!-- ## Duration of diabetes -->
+<!-- ```{r} -->
+<!-- table(data_postmeno$diabetic_years_cat -->
+<!--       [as.character(data_postmeno$br) == "Control"]) -->
+<!-- sum(table(data_postmeno$diabetic_years_cat -->
+<!--           [as.character(data_postmeno$br) == "Control"])) -->
+<!-- prop.table(table(data_postmeno$diabetic_years_cat -->
+<!--                  [as.character(data_postmeno$br) == "Control"])) -->
+
+<!-- table(data_postmeno$diabetic_years_cat -->
+<!--       [as.character(data_postmeno$br) == "Breast Cancer Case"]) -->
+<!-- sum(table(data_postmeno$diabetic_years_cat -->
+<!--           [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+<!-- prop.table(table(data_postmeno$diabetic_years_cat -->
+<!--                  [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+<!-- ``` -->
+<!-- ## New variable for duration of diabetes collapsing the levels 0 and 1 -->
+<!-- ```{r} -->
+<!-- data_postmeno$diabetes_duration = data_postmeno$diabetic_years_cat -->
+<!-- data_postmeno$diabetes_duration[data_postmeno$diabetes_duration <= 1] = 1 -->
+<!-- ``` -->
+
+<!-- ## Diabetes -->
+<!-- ```{r} -->
+<!-- table(data_postmeno$diabetes_YN -->
+<!--       [as.character(data_postmeno$br) == "Control"]) -->
+<!-- sum(table(data_postmeno$diabetes_YN -->
+<!--           [as.character(data_postmeno$br) == "Control"])) -->
+<!-- prop.table(table(data_postmeno$diabetes_YN -->
+<!--                  [as.character(data_postmeno$br) == "Control"])) -->
+
+<!-- table(data_postmeno$diabetes_YN -->
+<!--       [as.character(data_postmeno$br) == "Breast Cancer Case"]) -->
+<!-- sum(table(data_postmeno$diabetes_YN -->
+<!--           [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+<!-- prop.table(table(data_postmeno$diabetes_YN -->
+<!--                  [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+
+<!-- # Prepare data for diabetes_YN (Postmenopausal - Old) -->
+<!-- plot_data_diabetes_old <- data_postmeno %>% -->
+<!--   filter(br %in% c("Control", "Breast Cancer Case")) %>% -->
+<!--   mutate(br = as.character(br)) %>% -->
+<!--   count(br, diabetes_YN) %>% -->
+<!--   group_by(br) %>% -->
+<!--   mutate(prop = n / sum(n)) %>% -->
+<!--   ungroup() -->
+
+<!-- # Plot -->
+<!-- ggplot(plot_data_diabetes_old, aes(x = diabetes_YN, y = prop, fill = br)) + -->
+<!--   geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) + -->
+<!--   geom_text(aes(label = scales::percent(prop, accuracy = 0.1)), -->
+<!--             position = position_dodge(0.8), vjust = -0.3, size = 3.5) + -->
+<!--   scale_y_continuous(labels = scales::percent_format()) + -->
+<!--   scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) + -->
+<!--   labs( -->
+<!--     title = "Diabetes Y/N Distribution (Postmenopausal - Old)", -->
+<!--     x = "Diabetes (Y/N)", y = "Proportion", fill = "Group" -->
+<!--   ) + -->
+<!--   theme_minimal(base_size = 14) + -->
+<!--   theme( -->
+<!--     plot.title = element_text(face = "bold", hjust = 0.5), -->
+<!--     legend.position = "top" -->
+<!--   ) -->
+
+<!-- ``` -->
+
+<!-- ## Family history of diabetes -->
+<!-- ```{r} -->
+<!-- table(data_postmeno$F_H_diabetes -->
+<!--       [as.character(data_postmeno$br) == "Control"]) -->
+<!-- sum(table(data_postmeno$F_H_diabetes -->
+<!--           [as.character(data_postmeno$br) == "Control"])) -->
+<!-- prop.table(table(data_postmeno$F_H_diabetes -->
+<!--                  [as.character(data_postmeno$br) == "Control"])) -->
+
+<!-- table(data_postmeno$F_H_diabetes -->
+<!--       [as.character(data_postmeno$br) == "Breast Cancer Case"]) -->
+<!-- sum(table(data_postmeno$F_H_diabetes -->
+<!--           [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+<!-- prop.table(table(data_postmeno$F_H_diabetes -->
+<!--                  [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+
+<!-- # Prepare data for F_H_diabetes (Postmenopausal - Old) -->
+<!-- plot_data_fh_diabetes_old <- data_postmeno %>% -->
+<!--   filter(br %in% c("Control", "Breast Cancer Case")) %>% -->
+<!--   mutate(br = as.character(br)) %>% -->
+<!--   count(br, F_H_diabetes) %>% -->
+<!--   group_by(br) %>% -->
+<!--   mutate(prop = n / sum(n)) %>% -->
+<!--   ungroup() -->
+
+<!-- # Plot -->
+<!-- ggplot(plot_data_fh_diabetes_old, aes(x = F_H_diabetes, y = prop, fill = br)) + -->
+<!--   geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) + -->
+<!--   geom_text(aes(label = scales::percent(prop, accuracy = 0.1)), -->
+<!--             position = position_dodge(0.8), vjust = -0.3, size = 3.5) + -->
+<!--   scale_y_continuous(labels = scales::percent_format()) + -->
+<!--   scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) + -->
+<!--   labs( -->
+<!--     title = "Family History of Diabetes (Postmenopausal - Old)", -->
+<!--     x = "Family History of Diabetes", y = "Proportion", fill = "Group" -->
+<!--   ) + -->
+<!--   theme_minimal(base_size = 14) + -->
+<!--   theme( -->
+<!--     plot.title = element_text(face = "bold", hjust = 0.5), -->
+<!--     legend.position = "top" -->
+<!--   ) -->
+
+<!-- ``` -->
+
+
+## BMI and WHR interaction
+```{r}
+table(data_postmeno$bmicat
+      [as.character(data_postmeno$br) == "Control"], 
+      data_postmeno$ratio
+      [as.character(data_postmeno$br) == "Control"])
+sum(table(data_postmeno$bmicat
+          [as.character(data_postmeno$br) == "Control"], 
+          data_postmeno$ratio
+          [as.character(data_postmeno$br) == "Control"]))
+prop.table(table(data_postmeno$bmicat
+                 [as.character(data_postmeno$br) == "Control"], 
+                 data_postmeno$ratio
+                 [as.character(data_postmeno$br) == "Control"]))
+
+
+table(data_postmeno$bmicat
+      [as.character(data_postmeno$br) == "Breast Cancer Case"], 
+      data_postmeno$ratio
+      [as.character(data_postmeno$br) == "Breast Cancer Case"])
+sum(table(data_postmeno$bmicat
+          [as.character(data_postmeno$br) == "Breast Cancer Case"], 
+          data_postmeno$ratio
+          [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+prop.table(table(data_postmeno$bmicat
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"], 
+                 data_postmeno$ratio
+                 [as.character(data_postmeno$br) == "Breast Cancer Case"]))
+```
+
+<!-- ## BMI and diabetes interaction -->
+<!-- ```{r} -->
+<!-- table(data_postmeno$bmicat -->
+<!--       [as.character(data_postmeno$br) == "Control"],  -->
+<!--       data_postmeno$diabetes_YN -->
+<!--       [as.character(data_postmeno$br) == "Control"]) -->
+<!-- sum(table(data_postmeno$bmicat -->
+<!--           [as.character(data_postmeno$br) == "Control"],  -->
+<!--           data_postmeno$diabetes_YN -->
+<!--           [as.character(data_postmeno$br) == "Control"])) -->
+<!-- prop.table(table(data_postmeno$bmicat -->
+<!--                  [as.character(data_postmeno$br) == "Control"],  -->
+<!--                  data_postmeno$diabetes_YN -->
+<!--                  [as.character(data_postmeno$br) == "Control"])) -->
+
+
+<!-- table(data_postmeno$bmicat -->
+<!--       [as.character(data_postmeno$br) == "Breast Cancer Case"],  -->
+<!--       data_postmeno$diabetes_YN -->
+<!--       [as.character(data_postmeno$br) == "Breast Cancer Case"]) -->
+<!-- sum(table(data_postmeno$bmicat -->
+<!--           [as.character(data_postmeno$br) == "Breast Cancer Case"],  -->
+<!--           data_postmeno$diabetes_YN -->
+<!--           [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+<!-- prop.table(table(data_postmeno$bmicat -->
+<!--                  [as.character(data_postmeno$br) == "Breast Cancer Case"],  -->
+<!--                  data_postmeno$diabetes_YN -->
+<!--                  [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+
+<!-- ``` -->
+
+<!-- ## Categorical age at enrollment -->
+<!-- ```{r} -->
+<!-- table(data_postmeno$agecode -->
+<!--       [as.character(data_postmeno$br) == "Control"]) -->
+<!-- sum(table(data_postmeno$agecode -->
+<!--           [as.character(data_postmeno$br) == "Control"])) -->
+<!-- prop.table(table(data_postmeno$agecode -->
+<!--                  [as.character(data_postmeno$br) == "Control"])) -->
+
+<!-- table(data_postmeno$agecode -->
+<!--       [as.character(data_postmeno$br) == "Breast Cancer Case"]) -->
+<!-- sum(table(data_postmeno$agecode -->
+<!--           [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+<!-- prop.table(table(data_postmeno$agecode -->
+<!--                  [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+<!-- ``` -->
+
+<!-- ## Geographical location -->
+<!-- ```{r} -->
+<!-- table(data_postmeno$area -->
+<!--       [as.character(data_postmeno$br) == "Control"]) -->
+<!-- sum(table(data_postmeno$area -->
+<!--           [as.character(data_postmeno$br) == "Control"])) -->
+<!-- prop.table(table(data_postmeno$area -->
+<!--                  [as.character(data_postmeno$br) == "Control"])) -->
+
+<!-- table(data_postmeno$area -->
+<!--       [as.character(data_postmeno$br) == "Breast Cancer Case"]) -->
+<!-- sum(table(data_postmeno$area -->
+<!--           [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+<!-- prop.table(table(data_postmeno$area -->
+<!--                  [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+
+<!-- # Prepare data for area (Postmenopausal - Old) -->
+<!-- plot_data_area_old <- data_postmeno %>% -->
+<!--   filter(br %in% c("Control", "Breast Cancer Case")) %>% -->
+<!--   mutate(br = as.character(br)) %>% -->
+<!--   count(br, area) %>% -->
+<!--   group_by(br) %>% -->
+<!--   mutate(prop = n / sum(n)) %>% -->
+<!--   ungroup() -->
+
+<!-- # Plot -->
+<!-- ggplot(plot_data_area_old, aes(x = area, y = prop, fill = br)) + -->
+<!--   geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) + -->
+<!--   geom_text(aes(label = scales::percent(prop, accuracy = 0.1)), -->
+<!--             position = position_dodge(0.8), vjust = -0.3, size = 3.5) + -->
+<!--   scale_y_continuous(labels = scales::percent_format()) + -->
+<!--   scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) + -->
+<!--   labs( -->
+<!--     title = "Area of Residence (Postmenopausal - Old)", -->
+<!--     x = "Area of Residence", y = "Proportion", fill = "Group" -->
+<!--   ) + -->
+<!--   theme_minimal(base_size = 14) + -->
+<!--   theme( -->
+<!--     plot.title = element_text(face = "bold", hjust = 0.5), -->
+<!--     legend.position = "top" -->
+<!--   ) -->
+
+<!-- ``` -->
+
+<!-- ## Rural/urban based on first 20 years -->
+<!-- ```{r} -->
+<!-- table(data_postmeno$residancefirsttwentyyears -->
+<!--       [as.character(data_postmeno$br) == "Control"]) -->
+<!-- sum(table(data_postmeno$residancefirsttwentyyears -->
+<!--           [as.character(data_postmeno$br) == "Control"])) -->
+<!-- prop.table(table(data_postmeno$residancefirsttwentyyears -->
+<!--                  [as.character(data_postmeno$br) == "Control"])) -->
+
+<!-- table(data_postmeno$residancefirsttwentyyears -->
+<!--       [as.character(data_postmeno$br) == "Breast Cancer Case"]) -->
+<!-- sum(table(data_postmeno$residancefirsttwentyyears -->
+<!--           [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+<!-- prop.table(table(data_postmeno$residancefirsttwentyyears -->
+<!--                  [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+
+<!-- # Prepare data for residence in first 20 years (Postmenopausal - Old) -->
+<!-- plot_data_residency_old <- data_postmeno %>% -->
+<!--   filter(br %in% c("Control", "Breast Cancer Case")) %>% -->
+<!--   mutate(br = as.character(br)) %>% -->
+<!--   count(br, residancefirsttwentyyears) %>% -->
+<!--   group_by(br) %>% -->
+<!--   mutate(prop = n / sum(n)) %>% -->
+<!--   ungroup() -->
+
+<!-- # Plot -->
+<!-- ggplot(plot_data_residency_old, aes(x = residancefirsttwentyyears, y = prop, fill = br)) + -->
+<!--   geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) + -->
+<!--   geom_text(aes(label = scales::percent(prop, accuracy = 0.1)), -->
+<!--             position = position_dodge(0.8), vjust = -0.3, size = 3.5) + -->
+<!--   scale_y_continuous(labels = scales::percent_format()) + -->
+<!--   scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) + -->
+<!--   labs( -->
+<!--     title = "Residence in First 20 Years (Postmenopausal - Old)", -->
+<!--     x = "Residence in First 20 Years", y = "Proportion", fill = "Group" -->
+<!--   ) + -->
+<!--   theme_minimal(base_size = 14) + -->
+<!--   theme( -->
+<!--     plot.title = element_text(face = "bold", hjust = 0.5), -->
+<!--     legend.position = "top" -->
+<!--   ) -->
+
+<!-- ``` -->
+
+<!-- ## Binary education status: <8 years and >= 8 years of schooling -->
+<!-- ```{r} -->
+<!-- table(data_postmeno$ed -->
+<!--       [as.character(data_postmeno$br) == "Control"]) -->
+<!-- sum(table(data_postmeno$ed -->
+<!--           [as.character(data_postmeno$br) == "Control"])) -->
+<!-- prop.table(table(data_postmeno$ed -->
+<!--                  [as.character(data_postmeno$br) == "Control"])) -->
+
+<!-- table(data_postmeno$ed -->
+<!--       [as.character(data_postmeno$br) == "Breast Cancer Case"]) -->
+<!-- sum(table(data_postmeno$ed -->
+<!--           [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+<!-- prop.table(table(data_postmeno$ed -->
+<!--                  [as.character(data_postmeno$br) == "Breast Cancer Case"])) -->
+
+<!-- # Prepare data for education level (Postmenopausal - Old) -->
+<!-- plot_data_ed_old <- data_postmeno %>% -->
+<!--   filter(br %in% c("Control", "Breast Cancer Case")) %>% -->
+<!--   mutate(br = as.character(br)) %>% -->
+<!--   count(br, ed) %>% -->
+<!--   group_by(br) %>% -->
+<!--   mutate(prop = n / sum(n)) %>% -->
+<!--   ungroup() -->
+
+<!-- # Plot -->
+<!-- ggplot(plot_data_ed_old, aes(x = ed, y = prop, fill = br)) + -->
+<!--   geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) + -->
+<!--   geom_text(aes(label = scales::percent(prop, accuracy = 0.1)), -->
+<!--             position = position_dodge(0.8), vjust = -0.3, size = 3.5) + -->
+<!--   scale_y_continuous(labels = scales::percent_format()) + -->
+<!--   scale_fill_manual(values = c("Breast Cancer Case" = "#1f77b4", "Control" = "#ff7f0e")) + -->
+<!--   labs( -->
+<!--     title = "Education Level (Postmenopausal - Old)", -->
+<!--     x = "Education Level", y = "Proportion", fill = "Group" -->
+<!--   ) + -->
+<!--   theme_minimal(base_size = 14) + -->
+<!--   theme( -->
+<!--     plot.title = element_text(face = "bold", hjust = 0.5), -->
+<!--     legend.position = "top" -->
+<!--   ) -->
+
+<!-- ``` -->
+
+##Relative risk model for postmenopausal women
+```{r}
+model_postmeno = glm(br ~ as.factor(ageatfirstfulltermpreg_cat)
+                    + interval_menarche_firstbirth_cat
+                    + as.factor(fulltermpreg_cat)
+                    + oc + as.factor(mean_brfeed_duration_cat)
+                    + as.factor(totalabortion_cat)
+                    + as.factor(totalmiscarriage_cat)
+                    + as.factor(catht) + as.factor(bmicat) * as.factor(ratio),
+                    data = data_postmeno, family = binomial(link=logit),
+                    na.action = na.omit)
+
+# as.factor(agecode) + as.factor(area) 
+#                     + as.factor(ed) + as.factor(residancefirsttwentyyears) + as.factor(catmenopause)
+#                     + 
+
+cbind(exp(coef(model_postmeno)),exp(confint(model_postmeno)))
+
+summary(model_postmeno)
+```
+
+## Joint association of BMI and WHR#####
+```{r}
+#Log relative risks and variances
+estimate = coef(model_postmeno)[c("as.factor(bmicat)2","as.factor(bmicat)3",
+                                 "as.factor(ratio)1","as.factor(ratio)2",
+                                 "as.factor(bmicat)2:as.factor(ratio)1",
+                                 "as.factor(bmicat)3:as.factor(ratio)1",
+                                 "as.factor(bmicat)2:as.factor(ratio)2",
+                                 "as.factor(bmicat)3:as.factor(ratio)2")]
+
+variance = vcov(model_postmeno)[c("as.factor(bmicat)2","as.factor(bmicat)3",
+                                 "as.factor(ratio)1","as.factor(ratio)2",
+                                 "as.factor(bmicat)2:as.factor(ratio)1",
+                                 "as.factor(bmicat)3:as.factor(ratio)1",
+                                 "as.factor(bmicat)2:as.factor(ratio)2",
+                                 "as.factor(bmicat)3:as.factor(ratio)2"),
+                               c("as.factor(bmicat)2","as.factor(bmicat)3",
+                                 "as.factor(ratio)1","as.factor(ratio)2",
+                                 "as.factor(bmicat)2:as.factor(ratio)1",
+                                 "as.factor(bmicat)3:as.factor(ratio)1",
+                                 "as.factor(bmicat)2:as.factor(ratio)2",
+                                 "as.factor(bmicat)3:as.factor(ratio)2")]
+
+#BMI < 24.9, WHR < 0.84
+
+RR1 = 1
+
+ci1 = c(1,1)
+
+#BMI < 24.9, WHR 0.85-0.94
+
+RR2 = exp(coef(model_postmeno))["as.factor(ratio)1"]
+
+ci2 = exp(confint(model_postmeno))["as.factor(ratio)1",]
+
+#BMI < 24.9, WHR >= 0.95
+
+RR3 = exp(coef(model_postmeno))["as.factor(ratio)2"]
+
+ci3 = exp(confint(model_postmeno))["as.factor(ratio)2",]
+
+#BMI 25-29.9, WHR < 0.84
+
+RR4 = exp(coef(model_postmeno))["as.factor(bmicat)2"]
+
+ci4 = exp(confint(model_postmeno))["as.factor(bmicat)2",]
+
+#BMI 25-29.9, WHR 0.85-0.94
+
+RR5 = exp(coef(model_postmeno))["as.factor(bmicat)2"] * 
+  exp(coef(model_postmeno))["as.factor(ratio)1"] * 
+  exp(coef(model_postmeno))["as.factor(bmicat)2:as.factor(ratio)1"]
+
+v5 = c(1,0,1,0,1,0,0,0)
+
+RR5 = exp(v5 %*% estimate)
+
+sd5 = sqrt(v5 %*% variance %*% v5)
+
+ci5 = exp(c(log(RR5) - 1.96 * sd5, log(RR5) + 1.96 * sd5))
+
+
+#BMI 25-29.9, WHR >= 0.95
+
+RR6 = exp(coef(model_postmeno))["as.factor(bmicat)2"] * 
+  exp(coef(model_postmeno))["as.factor(ratio)2"] * 
+  exp(coef(model_postmeno))["as.factor(bmicat)2:as.factor(ratio)2"]
+
+v6 = c(1,0,0,1,0,0,1,0)
+
+RR6 = exp(v6 %*% estimate)
+
+sd6 = sqrt(v6 %*% variance %*% v6)
+
+ci6 = exp(c(log(RR6) - 1.96 * sd6, log(RR6) + 1.96 * sd6))
+
+#BMI >= 30, WHR < 0.84
+
+RR7 = exp(coef(model_postmeno))["as.factor(bmicat)3"]
+
+ci7 = exp(confint(model_postmeno))["as.factor(bmicat)3",]
+
+#BMI >= 30, WHR 0.85-0.94
+
+RR8 = exp(coef(model_postmeno))["as.factor(bmicat)3"] * 
+  exp(coef(model_postmeno))["as.factor(ratio)1"] * 
+  exp(coef(model_postmeno))["as.factor(bmicat)3:as.factor(ratio)1"]
+
+v8 = c(0,1,1,0,0,1,0,0)
+
+RR8 = exp(v8 %*% estimate)
+
+sd8 = sqrt(v8 %*% variance %*% v8)
+
+ci8 = exp(c(log(RR8) - 1.96 * sd8, log(RR8) + 1.96 * sd8))
+
+#BMI >= 30, WHR >= 0.95
+
+RR9 = exp(coef(model_postmeno))["as.factor(bmicat)3"] * 
+  exp(coef(model_postmeno))["as.factor(ratio)2"] * 
+  exp(coef(model_postmeno))["as.factor(bmicat)3:as.factor(ratio)2"]
+
+v9 = c(0,1,0,1,0,0,0,1)
+
+RR9 = exp(v9 %*% estimate)
+
+sd9 = sqrt(v9 %*% variance %*% v9)
+
+ci9 = exp(c(log(RR9) - 1.96 * sd9, log(RR9) + 1.96 * sd9))
+
+BMI_WHR_Postmeno = cbind(c(RR1,RR2,RR3,RR4,RR5,RR6,RR7,RR8,RR9),
+                        rbind(ci1,ci2,ci3,ci4,ci5,ci6,ci7,ci8,ci9))
+
+rownames(BMI_WHR_Postmeno)[c(1,5,6,8,9)] = c("Ref","as.factor(bmicat)2:as.factor(ratio)1",
+                                            "as.factor(bmicat)2:as.factor(ratio)2",
+                                            "as.factor(bmicat)3:as.factor(ratio)1",
+                                            "as.factor(bmicat)2:as.factor(ratio)2")
+
+
+#pdf(file = "BMI_WHR_Interaction_Postmeno")
+plotCI(x = BMI_WHR_Postmeno[,1], ui = BMI_WHR_Postmeno[,3], li = BMI_WHR_Postmeno[,2],
+       xlab = "", ylab = "Joint Relative Risk",pch=16,lwd = 2,xaxt = "n",
+       col = c(rep("red",3),rep("blue",3),rep("green",3)))
+
+mtext(expression("BMI"<="24.9"), side = 3, line = 1, at = 2, col = "red")
+mtext(expression("BMI 25-29.9"), side = 3, line = 1, at = 5, col = "blue")
+mtext(expression("BMI">="30"), side = 3, line = 1, at = 8, col = "green")
+
+mtext(rep(expression("WHR"<=0.84),3), side = 1, line = 0.2, las = 2, 
+      at = c(1,4,7), col = c("red","blue","green"), cex = 0.7)
+mtext(rep("WHR 0.85-0.94",3), side = 1, line = 0.2, las = 2, 
+      at = c(2,5,8), col = c("red","blue","green"), cex = 0.7)
+mtext(rep(expression("WHR">=0.95),3), side = 1, line = 0.2, las = 2, 
+      at = c(3,6,9), col = c("red","blue","green"), cex = 0.7)
+#dev.off()
+```
+
+
+# Absolute risk prediction using iCARE
+
+## Function to format incidence and mortality rates
+```{r}
+formatted_rates = function(mat){
+  if(ncol(mat)==3){
+    start <- mat[,1]
+    end   <- mat[,2]
+    rate  <- mat[,3]
+    
+    integer_ages <- seq(min(start), max(end))
+    formatted    <- cbind( integer_ages, rep(NA, length(integer_ages)))
+    for(i in 1:nrow(mat)){
+      these              <- which(formatted[,1]>=start[i] & 
+                                    formatted[,1]<=end[i])
+      #formatted[these,2] <- rate[i]/length(these)
+      formatted[these,2] <- rate[i]
+    }
+    colnames(formatted) <- c("ages", "rates")
+    formatted
+  }else{
+    formatted = mat
+  }
+  formatted
+}
+```
+
+## Formatting breast cancer incidence rate 
+```{r}
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
+
+bc_inci = read.xlsx("BC_Incidence_Rates.xlsx")
+bc_inci = formatted_rates(bc_inci)
+bc_inci[,2] = bc_inci[,2]/100000
+```
+
+## Formatting overall mortality rate
+```{r}
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
+mort_inci = read.xlsx("Overall_Mortality_Rates.xlsx")
+mort_inci = formatted_rates(mort_inci)
+mort_inci[,2] = mort_inci[,2]/1000
+```
+
+## Creating the reference dataset
+```{r}
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
+ref_data = read.xlsx("Breast_1.12.22.xlsx")
+test_data = read.xlsx("parichoy_br_data_6.2.23.xlsx")
+```
+
+## Categories for age at first full term pregnancy
+```{r}
+ref_data$ageatfirstfulltermpreg_cat = 
+  ref_data$age_at_first_fullterm_preg
+ref_data$ageatfirstfulltermpreg_cat[which(ref_data$age_at_first_fullterm_preg < 20)] = 1
+ref_data$ageatfirstfulltermpreg_cat[which(ref_data$age_at_first_fullterm_preg == 20 
+                                          | ref_data$age_at_first_fullterm_preg == 21)] = 2
+ref_data$ageatfirstfulltermpreg_cat[which(ref_data$age_at_first_fullterm_preg == 22 
+                                          | ref_data$age_at_first_fullterm_preg == 23)] = 3
+ref_data$ageatfirstfulltermpreg_cat[which(ref_data$age_at_first_fullterm_preg == 24 
+                                          | ref_data$age_at_first_fullterm_preg == 25)] = 4
+ref_data$ageatfirstfulltermpreg_cat[which(ref_data$age_at_first_fullterm_preg >= 26)] = 5
+
+
+test_data$ageatfirstfulltermpreg_cat = 
+  test_data$age_at_first_fullterm_preg
+test_data$ageatfirstfulltermpreg_cat[which(test_data$age_at_first_fullterm_preg < 20)] = 1
+test_data$ageatfirstfulltermpreg_cat[which(test_data$age_at_first_fullterm_preg == 20 
+                                          | test_data$age_at_first_fullterm_preg == 21)] = 2
+test_data$ageatfirstfulltermpreg_cat[which(test_data$age_at_first_fullterm_preg == 22 
+                                          | test_data$age_at_first_fullterm_preg == 23)] = 3
+test_data$ageatfirstfulltermpreg_cat[which(test_data$age_at_first_fullterm_preg == 24 
+                                          | test_data$age_at_first_fullterm_preg == 25)] = 4
+test_data$ageatfirstfulltermpreg_cat[which(test_data$age_at_first_fullterm_preg >= 26)] = 5
+
+table(test_data$ageatfirstfulltermpreg_cat)
+sum(is.na(test_data$age_at_first_fullterm_preg))
+
+```
+
+##Categories of interval between menarche and full term pregnancy
+```{r}
+ref_data$interval_menarche_firstbirth_cat = 
+  ref_data$durn_menarch_first_fullterm_preg
+ref_data$interval_menarche_firstbirth_cat[ref_data$durn_menarch_first_fullterm_preg < 10] = 0
+ref_data$interval_menarche_firstbirth_cat[ref_data$durn_menarch_first_fullterm_preg >= 10] = 1
+
+test_data$interval_menarche_firstbirth_cat = 
+  test_data$durn_menarch_first_fullterm_preg
+test_data$interval_menarche_firstbirth_cat[test_data$durn_menarch_first_fullterm_preg < 10] = 0
+test_data$interval_menarche_firstbirth_cat[test_data$durn_menarch_first_fullterm_preg >= 10] = 1
+
+table(test_data$interval_menarche_firstbirth_cat)
+sum(is.na(test_data$interval_menarche_firstbirth_cat))
+```
+
+## Categories for number of full term pregnancies
+```{r}
+ref_data$fulltermpreg_cat = ref_data$No_of_live_birth
+ref_data$fulltermpreg_cat[ref_data$No_of_live_birth == 0] = 1
+ref_data$fulltermpreg_cat[ref_data$No_of_live_birth >= 4] = 4
+
+test_data$fulltermpreg_cat = test_data$No_of_live_birth
+test_data$fulltermpreg_cat[test_data$No_of_live_birth == 0] = 1
+test_data$fulltermpreg_cat[test_data$No_of_live_birth >= 4] = 4
+
+table(test_data$fulltermpreg_cat)
+sum(is.na(test_data$fulltermpreg_cat))
+
+```
+
+## OC use
+```{r}
+ref_data$oc = NA
+ref_data$oc[ref_data$oc_use_yn == 2] = 0
+ref_data$oc[ref_data$oc_use_yn == 1] = 1
+
+test_data$oc = NA
+test_data$oc[test_data$oc_use_yn == 2] = 0
+test_data$oc[test_data$oc_use_yn == 1] = 1
+
+table(test_data$oc)
+sum(is.na(test_data$oc))
+```
+
+## Categories for number of induced abortions
+```{r}
+ref_data$totalabortion_cat = ref_data$count_abortion
+ref_data$totalabortion_cat[ref_data$count_abortion >= 2] = 2
+
+test_data$totalabortion_cat = test_data$count_abortion
+test_data$totalabortion_cat[test_data$count_abortion >= 2] = 2
+
+table(test_data$totalabortion_cat)
+sum(is.na(test_data$totalabortion_cat))
+```
+
+## Categories for number of spontaneous abortions
+```{r}
+ref_data$totalmiscarriage_cat = ref_data$count_miscarriage
+ref_data$totalmiscarriage_cat[ref_data$count_miscarriage >= 2] = 2
+
+test_data$totalmiscarriage_cat = test_data$count_miscarriage
+test_data$totalmiscarriage_cat[test_data$count_miscarriage >= 2] = 2
+
+table(test_data$totalmiscarriage_cat)
+sum(is.na(test_data$totalmiscarriage_cat))
+```
+
+## Categories for duration of breastfeeding
+```{r}
+ref_data$mean_brfeed_duration_cat = ref_data$avg_dur_breastfeeding
+ref_data$mean_brfeed_duration_cat[ref_data$avg_dur_breastfeeding < 12] = 1
+ref_data$mean_brfeed_duration_cat[ref_data$avg_dur_breastfeeding >= 12 
+                                  & ref_data$avg_dur_breastfeeding < 24] = 2
+ref_data$mean_brfeed_duration_cat[ref_data$avg_dur_breastfeeding >= 24 
+                                  & ref_data$avg_dur_breastfeeding < 36] = 3
+ref_data$mean_brfeed_duration_cat[ref_data$avg_dur_breastfeeding >= 36] = 4
+
+test_data$mean_brfeed_duration_cat = test_data$avg_dur_breastfeeding
+test_data$mean_brfeed_duration_cat[test_data$avg_dur_breastfeeding < 12] = 1
+test_data$mean_brfeed_duration_cat[test_data$avg_dur_breastfeeding >= 12 
+                                  & test_data$avg_dur_breastfeeding < 24] = 2
+test_data$mean_brfeed_duration_cat[test_data$avg_dur_breastfeeding >= 24 
+                                  & test_data$avg_dur_breastfeeding < 36] = 3
+test_data$mean_brfeed_duration_cat[test_data$avg_dur_breastfeeding >= 36] = 4
+
+table(test_data$mean_brfeed_duration_cat)
+sum(is.na(test_data$mean_brfeed_duration_cat))
+```
+
+## BMI
+```{r}
+ref_data$bmicat = ref_data$BMI
+ref_data$bmicat[ref_data$BMI < 25] = 1
+ref_data$bmicat[ref_data$BMI >= 25 & ref_data$BMI < 30] = 2
+ref_data$bmicat[ref_data$BMI >= 30] = 3
+
+test_data$bmicat = test_data$BMI
+test_data$bmicat[test_data$BMI < 25] = 1
+test_data$bmicat[test_data$BMI >= 25 & test_data$BMI < 30] = 2
+test_data$bmicat[test_data$BMI >= 30] = 3
+
+table(test_data$bmicat )
+sum(is.na(test_data$bmicat))
+```
+
+## Height
+```{r}
+ref_data$catht = ref_data$Avg_Height
+ref_data$catht[ref_data$Avg_Height <= 150] = 0
+ref_data$catht[ref_data$Avg_Height > 150 & 
+                 ref_data$Avg_Height <= 155] = 1
+ref_data$catht[ref_data$Avg_Height > 155 & 
+                 ref_data$Avg_Height <= 160] = 2
+ref_data$catht[ref_data$Avg_Height > 160] = 3
+
+test_data$catht = test_data$Avg_Height
+test_data$catht[test_data$Avg_Height <= 150] = 0
+test_data$catht[test_data$Avg_Height > 150 & 
+                 test_data$Avg_Height <= 155] = 1
+test_data$catht[test_data$Avg_Height > 155 & 
+                 test_data$Avg_Height <= 160] = 2
+test_data$catht[test_data$Avg_Height > 160] = 3
+
+table(test_data$catht)
+sum(is.na(test_data$catht))
+```
+
+## WHR
+```{r}
+ref_data$ratio = ref_data$waist_to_hip
+ref_data$ratio[ref_data$waist_to_hip <= 0.84] = 0
+ref_data$ratio[ref_data$waist_to_hip > 0.84 & 
+                 ref_data$waist_to_hip <= 0.94] = 1
+ref_data$ratio[ref_data$waist_to_hip > 0.94] = 2
+
+test_data$ratio = test_data$waist_to_hip
+test_data$ratio[test_data$waist_to_hip <= 0.84] = 0
+test_data$ratio[test_data$waist_to_hip > 0.84 & 
+                 test_data$waist_to_hip <= 0.94] = 1
+test_data$ratio[test_data$waist_to_hip > 0.94] = 2
+
+table(test_data$ratio)
+sum(is.na(test_data$ratio))
+```
+
+## Age at menopause
+```{r}
+ref_data$catmenopause = ref_data$Age_at_men_stop
+ref_data$catmenopause[ref_data$Age_at_men_stop <= 40] = 0
+ref_data$catmenopause[ref_data$Age_at_men_stop > 40 & 
+                        ref_data$Age_at_men_stop <= 45] = 1
+ref_data$catmenopause[ref_data$Age_at_men_stop > 45 & 
+                        ref_data$Age_at_men_stop <= 50] = 2
+ref_data$catmenopause[ref_data$Age_at_men_stop > 50] = 3
+
+test_data$catmenopause = test_data$Age_at_men_stop
+test_data$catmenopause[test_data$Age_at_men_stop <= 40] = 0
+test_data$catmenopause[test_data$Age_at_men_stop > 40 & 
+                        test_data$Age_at_men_stop <= 45] = 1
+test_data$catmenopause[test_data$Age_at_men_stop > 45 & 
+                        test_data$Age_at_men_stop <= 50] = 2
+test_data$catmenopause[test_data$Age_at_men_stop > 50] = 3
+
+table(test_data$catmenopause)
+sum(is.na(test_data$catmenopause))
+```
+
+## Reference dataset for premenopausal women
+```{r}
+ref_data_premeno = ref_data[ref_data$mentruation_status == 1,]
+ref_data_premeno = ref_data_premeno[,c("age","ageatfirstfulltermpreg_cat",
+                                       "interval_menarche_firstbirth_cat",
+                                       "fulltermpreg_cat",
+                                       "oc", "mean_brfeed_duration_cat",
+                                       "totalabortion_cat",
+                                       "totalmiscarriage_cat",
+                                       "catht", "bmicat", "ratio")]
+
+ref_data_premeno = na.omit(ref_data_premeno)
+
+#Study entry age for the premenopausal women
+age_premeno = ref_data_premeno$age
+
+ref_data_premeno = ref_data_premeno[,!names(ref_data_premeno) %in% "age"]
+
+dim(ref_data_premeno)
+
+
+##Setting up the test data premenopausal women
+test_data_premeno = test_data[test_data$mentruation_status == 1,]
+test_data_premeno = test_data_premeno[,c("age","ageatfirstfulltermpreg_cat",
+                                       "interval_menarche_firstbirth_cat",
+                                       "fulltermpreg_cat",
+                                       "oc", "mean_brfeed_duration_cat",
+                                       "totalabortion_cat",
+                                       "totalmiscarriage_cat",
+                                       "catht", "bmicat", "ratio")]
+
+#test_data_premeno = na.omit(test_data_premeno)
+
+#Study entry age for the premenopausal women
+age_premeno_test = test_data_premeno$age
+
+test_data_premeno = test_data_premeno[,!names(test_data_premeno) %in% "age"]
+```
+
+## Model formula for premenopausal women
+```{r}
+model.formula.premeno = br ~ as.factor(ageatfirstfulltermpreg_cat) + 
+  interval_menarche_firstbirth_cat + as.factor(fulltermpreg_cat) + 
+  oc + as.factor(mean_brfeed_duration_cat) +
+  as.factor(totalabortion_cat) + as.factor(totalmiscarriage_cat) + 
+  as.factor(catht) + as.factor(bmicat) * as.factor(ratio)
+```
+
+## Model covariate information for premenopausal women
+```{r}
+v1 = list()
+v1$name = "ageatfirstfulltermpreg_cat"
+v1$type = "factor"
+v1$levels = c("1","2","3","4","5")
+
+v2 = list()
+v2$name = "interval_menarche_firstbirth_cat"
+v2$type = "continuous"
+
+v3 = list()
+v3$name = "fulltermpreg_cat"
+v3$type = "factor"
+v3$levels = c("1","2","3","4")
+
+v4 = list()
+v4$name = "oc"
+v4$type = "continuous"
+
+v5 = list()
+v5$name = "mean_brfeed_duration_cat"
+v5$type = "factor"
+v5$levels = c("1","2","3","4")
+
+v6 = list()
+v6$name = "totalabortion_cat"
+v6$type = "factor"
+v6$levels = c("0","1","2")
+
+v7 = list()
+v7$name = "totalmiscarriage_cat"
+v7$type = "factor"
+v7$levels = c("0","1","2")
+
+v8 = list()
+v8$name = "catht"
+v8$type = "factor"
+v8$levels = c("0","1","2","3")
+
+v9 = list()
+v9$name = "bmicat"
+v9$type = "factor"
+v9$levels = c("1","2","3")
+
+v10 = list()
+v10$name = "ratio"
+v10$type = "factor"
+v10$levels = c("0","1","2")
+
+cov.info.premeno = list(v1,v2,v3,v4,v5,v6,v7,v8,v9,v10)
+```
+
+##Model log relative risks for premenopausal women
+```{r}
+logRR_premeno = coef(model_premeno)[-c(1:10)]
+```
+
+
+## Absolute risk distribution for premenopausal women
+```{r}
+## 5-year risk
+output_premeno_5y = computeAbsoluteRisk(model.formula = model.formula.premeno,
+                                        model.cov.info = cov.info.premeno,
+                                        model.snp.info = NULL,
+                                        model.log.RR = logRR_premeno,
+                                        model.ref.dataset = ref_data_premeno,
+                                        model.disease.incidence.rates = bc_inci,
+                                        model.competing.incidence.rates = mort_inci,
+                                        model.bin.fh.name = NA,
+                                        apply.age.start = age_premeno,
+                                        apply.age.interval.length = 5,
+                                        apply.cov.profile = ref_data_premeno,
+                                        apply.snp.profile = NULL,
+                                        return.lp = TRUE,
+                                        return.refs.risk = TRUE)
+
+output_premeno_test_5y = computeAbsoluteRisk(model.formula = model.formula.premeno,
+                                             model.cov.info = cov.info.premeno,
+                                             model.snp.info = NULL,
+                                             model.log.RR = logRR_premeno,
+                                             model.ref.dataset = ref_data_premeno,
+                                             model.disease.incidence.rates = bc_inci,
+                                             model.competing.incidence.rates = mort_inci,
+                                             model.bin.fh.name = NA,
+                                             apply.age.start = age_premeno_test,
+                                             apply.age.interval.length = 5,
+                                             apply.cov.profile = test_data_premeno,
+                                             apply.snp.profile = NULL,
+                                             return.lp = TRUE,
+                                             return.refs.risk = TRUE)
+
+summary(output_premeno_5y$risk * 100)
+summary(output_premeno_test_5y$risk * 100)
+
+#pdf("Five_year_AR_premenopausal.pdf")
+plot(density(output_premeno_5y$risk * 100),
+     xlim = c(0,4), ylim = c(0,4),
+     main = "Premenopausal Women",
+     xlab = "5-year absolute risk (%)", lwd = 3)
+abline(v = output_premeno_test_5y$risk * 100, col = "red")
+text(x = 3, y = 1, 
+     labels = paste("Mean AR (%):", 
+                    round(mean(output_premeno_5y$risk * 100),1)))
+#dev.off()
+
+## 10-year risk
+output_premeno_10y = computeAbsoluteRisk(model.formula = model.formula.premeno,
+                                         model.cov.info = cov.info.premeno,
+                                         model.snp.info = NULL,
+                                         model.log.RR = logRR_premeno,
+                                         model.ref.dataset = ref_data_premeno,
+                                         model.disease.incidence.rates = bc_inci,
+                                         model.competing.incidence.rates = mort_inci,
+                                         model.bin.fh.name = NA,
+                                         apply.age.start = age_premeno,
+                                         apply.age.interval.length = 10,
+                                         apply.cov.profile = ref_data_premeno,
+                                         apply.snp.profile = NULL,
+                                         return.lp = TRUE,
+                                         return.refs.risk = TRUE)
+
+output_premeno_test_10y = computeAbsoluteRisk(model.formula = model.formula.premeno,
+                                              model.cov.info = cov.info.premeno,
+                                              model.snp.info = NULL,
+                                              model.log.RR = logRR_premeno,
+                                              model.ref.dataset = ref_data_premeno,
+                                              model.disease.incidence.rates = bc_inci,
+                                              model.competing.incidence.rates = mort_inci,
+                                              model.bin.fh.name = NA,
+                                              apply.age.start = age_premeno_test,
+                                              apply.age.interval.length = 10,
+                                              apply.cov.profile = test_data_premeno,
+                                              apply.snp.profile = NULL,
+                                              return.lp = TRUE,
+                                              return.refs.risk = TRUE)
+
+summary(output_premeno_10y$risk * 100)
+summary(output_premeno_test_10y$risk * 100)
+
+#pdf("Five_year_AR_premenopausal.pdf")
+plot(density(output_premeno_10y$risk * 100),
+     xlim = c(0,4), ylim = c(0,2),
+     main = "Premenopausal Women",
+     xlab = "10-year absolute risk (%)", lwd = 3)
+abline(v = output_premeno_test_10y$risk * 100, col = "red")
+text(x = 3, y = 1, 
+     labels = paste("Mean AR (%):", 
+                    round(mean(output_premeno_10y$risk * 100),1)))
+#dev.off()
+```
+
+
+## Reference dataset for postmenopausal women
+```{r}
+ref_data_postmeno = ref_data[ref_data$mentruation_status == 2,]
+ref_data_postmeno = ref_data_postmeno[,c("age","ageatfirstfulltermpreg_cat",
+                                         "interval_menarche_firstbirth_cat",
+                                         "fulltermpreg_cat", "catmenopause",
+                                         "oc", "mean_brfeed_duration_cat",
+                                         "totalabortion_cat",
+                                         "totalmiscarriage_cat",
+                                         "catht", "bmicat", "ratio")]
+
+ref_data_postmeno = na.omit(ref_data_postmeno)
+
+#Study entry age for postmenopausal women
+age_postmeno = ref_data_postmeno$age
+
+ref_data_postmeno = ref_data_postmeno[,!names(ref_data_postmeno) %in% "age"]
+
+
+test_data_postmeno = test_data[test_data$mentruation_status == 2,]
+test_data_postmeno = test_data_postmeno[,c("age","ageatfirstfulltermpreg_cat",
+                                         "interval_menarche_firstbirth_cat",
+                                         "fulltermpreg_cat", "catmenopause",
+                                         "oc", "mean_brfeed_duration_cat",
+                                         "totalabortion_cat",
+                                         "totalmiscarriage_cat",
+                                         "catht", "bmicat", "ratio")]
+
+#test_data_postmeno = na.omit(test_data_postmeno)
+
+#Study entry age for postmenopausal women
+age_postmeno_test = test_data_postmeno$age
+
+test_data_postmeno = test_data_postmeno[,!names(test_data_postmeno) %in% "age"]
+```
+
+## Model formula for postmenopausal women
+```{r}
+model.formula.postmeno = br ~ as.factor(ageatfirstfulltermpreg_cat) + 
+  interval_menarche_firstbirth_cat + as.factor(fulltermpreg_cat) + 
+  as.factor(catmenopause) + oc + as.factor(mean_brfeed_duration_cat) + 
+  as.factor(totalabortion_cat) + as.factor(totalmiscarriage_cat) + 
+  as.factor(catht) + as.factor(bmicat) * as.factor(ratio)
+```
+
+## Model covariate information for postmenopausal women
+```{r}
+v1 = list()
+v1$name = "ageatfirstfulltermpreg_cat"
+v1$type = "factor"
+v1$levels = c("1","2","3","4","5")
+
+v2 = list()
+v2$name = "interval_menarche_firstbirth_cat"
+v2$type = "continuous"
+
+v3 = list()
+v3$name = "fulltermpreg_cat"
+v3$type = "factor"
+v3$levels = c("1","2","3","4")
+
+
+v4 = list()
+v4$name = "catmenopause"
+v4$type = "factor"
+v4$levels = c("0","1","2","3")
+
+v5 = list()
+v5$name = "oc"
+v5$type = "continuous"
+
+v6 = list()
+v6$name = "mean_brfeed_duration_cat"
+v6$type = "factor"
+v6$levels = c("1","2","3","4")
+
+v7 = list()
+v7$name = "totalabortion_cat"
+v7$type = "factor"
+v7$levels = c("0","1","2")
+
+v8 = list()
+v8$name = "totalmiscarriage_cat"
+v8$type = "factor"
+v8$levels = c("0","1","2")
+
+v9 = list()
+v9$name = "catht"
+v9$type = "factor"
+v9$levels = c("0","1","2","3")
+
+v10 = list()
+v10$name = "bmicat"
+v10$type = "factor"
+v10$levels = c("1","2","3")
+
+v11 = list()
+v11$name = "ratio"
+v11$type = "factor"
+v11$levels = c("0","1","2")
+
+
+cov.info.postmeno = list(v1,v2,v3,v4,v5,v6,v7,v8,v9,v10,v11)
+```
+
+## Model log relative risks for postmenopausal women
+```{r}
+logRR_postmeno = coef(model_postmeno)[-c(1:10)]
+```
+
+## Absolute risk distribution for postmenopausal women
+```{r}
+## 5-year risk
+output_postmeno_5y = computeAbsoluteRisk(model.formula = model.formula.postmeno,
+                                         model.cov.info = cov.info.postmeno,
+                                         model.snp.info = NULL,
+                                         model.log.RR = logRR_postmeno,
+                                         model.ref.dataset = ref_data_postmeno,
+                                         model.disease.incidence.rates = bc_inci,
+                                         model.competing.incidence.rates = mort_inci,
+                                         model.bin.fh.name = NA,
+                                         apply.age.start = age_postmeno,
+                                         apply.age.interval.length = 5,
+                                         apply.cov.profile = ref_data_postmeno,
+                                         apply.snp.profile = NULL,
+                                         return.lp = TRUE,
+                                         return.refs.risk = TRUE)
+
+output_postmeno_test_5y = computeAbsoluteRisk(model.formula = model.formula.postmeno,
+                                              model.cov.info = cov.info.postmeno,
+                                              model.snp.info = NULL,
+                                              model.log.RR = logRR_postmeno,
+                                              model.ref.dataset = ref_data_postmeno,
+                                              model.disease.incidence.rates = bc_inci,
+                                              model.competing.incidence.rates = mort_inci,
+                                              model.bin.fh.name = NA,
+                                              apply.age.start = age_postmeno_test,
+                                              apply.age.interval.length = 5,
+                                              apply.cov.profile = test_data_postmeno,
+                                              apply.snp.profile = NULL,
+                                              return.lp = TRUE,
+                                              return.refs.risk = TRUE)
+
+summary(output_postmeno_5y$risk * 100)
+summary(output_postmeno_test_5y$risk * 100)
+
+#pdf("Five_year_AR_postmenopausal.pdf")
+plot(density(output_postmeno_5y$risk * 100),
+     xlim = c(0,4), ylim = c(0,4),
+     main = "Postmenopausal Women",
+     xlab = "5-year absolute risk (%)", lwd = 3)
+abline(v = output_postmeno_test_5y$risk * 100, col = "red")
+text(x = 3, y = 1, 
+     labels = paste("Mean AR (%):", 
+                    round(mean(output_postmeno_5y$risk * 100),1)))
+#dev.off()
+
+##10-year risk
+output_postmeno_10y = computeAbsoluteRisk(model.formula = model.formula.postmeno,
+                                          model.cov.info = cov.info.postmeno,
+                                          model.snp.info = NULL,
+                                          model.log.RR = logRR_postmeno,
+                                          model.ref.dataset = ref_data_postmeno,
+                                          model.disease.incidence.rates = bc_inci,
+                                          model.competing.incidence.rates = mort_inci,
+                                          model.bin.fh.name = NA,
+                                          apply.age.start = age_postmeno,
+                                          apply.age.interval.length = 10,
+                                          apply.cov.profile = ref_data_postmeno,
+                                          apply.snp.profile = NULL,
+                                          return.lp = TRUE,
+                                          return.refs.risk = TRUE)
+
+output_postmeno_test_10y = computeAbsoluteRisk(model.formula = model.formula.postmeno,
+                                               model.cov.info = cov.info.postmeno,
+                                               model.snp.info = NULL,
+                                               model.log.RR = logRR_postmeno,
+                                               model.ref.dataset = ref_data_postmeno,
+                                               model.disease.incidence.rates = bc_inci,
+                                               model.competing.incidence.rates = mort_inci,
+                                               model.bin.fh.name = NA,
+                                               apply.age.start = age_postmeno_test,
+                                               apply.age.interval.length = 10,
+                                               apply.cov.profile = test_data_postmeno,
+                                               apply.snp.profile = NULL,
+                                               return.lp = TRUE,
+                                               return.refs.risk = TRUE)
+
+summary(output_postmeno_10y$risk * 100)
+summary(output_postmeno_test_10y$risk * 100)
+
+#pdf("Five_year_AR_postmenopausal.pdf")
+plot(density(output_postmeno_10y$risk * 100),
+     xlim = c(0,4), ylim = c(0,2),
+     main = "Postmenopausal Women",
+     xlab = "10-year absolute risk (%)", lwd = 3)
+abline(v = output_postmeno_test_10y$risk * 100, col = "red")
+text(x = 3.5, y = 1, 
+     labels = paste("Mean AR (%):", 
+                    round(mean(output_postmeno_10y$risk * 100),1)))
+#dev.off()
+
+```
+
+## Risk projections in the Indian population
+
+Load the census data
+```{r}
+setwd("/Users/anaghchattopadhyay/Documents/Nilanjan\ Project/TMC_BCProject/Data")
+
+pop_data = read.xlsx("Indian population numbers by Age (Census-2011).xlsx")
+names(pop_data) = c("Age","Population")
+pop_data = pop_data[-1,]
+
+
+pop_data$Age = as.numeric(pop_data$Age)
+pop_data$Population = as.numeric(pop_data$Population)
+
+pop_data = na.omit(pop_data)
+```
+
+Age at menopause category definitions
+0: <= 40 years
+1: 41-45 years
+2: 46-50 years
+3: >= 51 years
+
+Look at the distribution of age at menopause to determine the age cutoff
+```{r}
+prop.table(table(ref_data_postmeno$catmenopause))
+```
+Median age at menopause roughly 45 years. Premenopausal group defined as 25-45 years and postmenopausal group defined as 45-68 years
+
+Population size in the premenopausal group:
+```{r}
+
+pop_total_premeno = sum(pop_data$Population[pop_data$Age >= 25 & 
+                                              pop_data$Age < 45], na.rm = TRUE)
+pop_total_premeno
+```
+
+5-year risk projections
+
+Approximate number of future cases (within 5 years) in the premenopausal group:
+```{r}
+cases_total_premeno = round(pop_total_premeno * round(mean(output_premeno_5y$risk),3),0)
+cases_total_premeno
+```
+
+
+Percentage of premenopausal women above 1\% 5-year absolute risk
+```{r}
+round(mean(output_premeno_5y$risk >= 0.01) * 100,1)
+```
+
+
+Number of premenopausal women above 1\% 5-year absolute risk
+```{r}
+pop_total_above_0.01AR_premeno = round(round(mean(output_premeno_5y$risk >= 0.01),3) * 
+                                         pop_total_premeno, 0)
+pop_total_above_0.01AR_premeno
+```
+
+
+
+Number of future cases in the group above 1\% 5-year absolute risk
+```{r}
+cases_total_above_0.01AR_premeno = 
+  round(round(mean(output_premeno_5y$risk[output_premeno_5y$risk >= 0.01]),3) * 
+          pop_total_above_0.01AR_premeno,0)
+cases_total_above_0.01AR_premeno
+```
+Percentage of future cases in the group above 1\% 5-year absolute risk
+```{r}
+round((cases_total_above_0.01AR_premeno/cases_total_premeno)*100,1)
+```
+
+Population size in the postmenopausal group:
+
+```{r}
+pop_total_postmeno = sum(pop_data$Population[pop_data$Age >= 45 & 
+                                              pop_data$Age <= 68], na.rm = TRUE)
+pop_total_postmeno
+```
+
+Approximate number of future cases (within 5 years) in the postmenopausal group:
+```{r}
+cases_total_postmeno = round(pop_total_postmeno * round(mean(output_postmeno_5y$risk),3),0)
+cases_total_postmeno
+```
+
+Percentage of postmenopausal women above 1\% 5-year absolute risk
+```{r}
+round(mean(output_postmeno_5y$risk >= 0.01) * 100,1)
+```
+
+Number of postmenopausal women above 1\% 5-year absolute risk
+```{r}
+pop_total_above_0.01AR_postmeno = round(round(mean(output_postmeno_5y$risk >= 0.01),3) * 
+                                          pop_total_postmeno, 0)
+pop_total_above_0.01AR_postmeno
+```
+
+Number of future cases in the group above 1\% 5-year absolute risk
+```{r}
+cases_total_above_0.01AR_postmeno = 
+  round(round(mean(output_postmeno_5y$risk[output_postmeno_5y$risk >= 0.01]),3) * 
+          pop_total_above_0.01AR_postmeno,0)
+cases_total_above_0.01AR_postmeno
+```
+Percentage of future cases in the group above 1\% 5-year absolute risk
+```{r}
+round((cases_total_above_0.01AR_postmeno/cases_total_postmeno)*100,1)
+```
+
+
+
+10-year risk projections
+
+Approximate number of future cases (within 10 years) in the premenopausal group:
+```{r}
+cases_total_premeno = round(pop_total_premeno * round(mean(output_premeno_10y$risk),3),0)
+cases_total_premeno
+```
+
+
+Percentage of premenopausal women above 2\% 10-year absolute risk
+```{r}
+round(mean(output_premeno_10y$risk >= 0.02) * 100,1)
+```
+
+
+Number of premenopausal women above 2\% 10-year absolute risk
+```{r}
+pop_total_above_0.02AR_premeno = round(round(mean(output_premeno_10y$risk >= 0.02),3) * 
+                                         pop_total_premeno, 0)
+pop_total_above_0.02AR_premeno
+```
+
+Number of future cases in the group above 2\% 10-year absolute risk
+```{r}
+cases_total_above_0.02AR_premeno = 
+  round(round(mean(output_premeno_10y$risk[output_premeno_10y$risk >= 0.02]),3) * 
+          pop_total_above_0.02AR_premeno,0)
+cases_total_above_0.02AR_premeno
+```
+Percentage of future cases in the group above 2\% 10-year absolute risk
+```{r}
+round((cases_total_above_0.02AR_premeno/cases_total_premeno)*100,1)
+```
+
+Population size in the postmenopausal group:
+
+```{r}
+pop_total_postmeno = sum(pop_data$Population[pop_data$Age >= 45 & 
+                                              pop_data$Age <= 68], na.rm = TRUE)
+pop_total_postmeno
+```
+
+Approximate number of future cases (within 10 years) in the postmenopausal group:
+```{r}
+cases_total_postmeno = round(pop_total_postmeno * round(mean(output_postmeno_10y$risk),3),0)
+cases_total_postmeno
+```
+
+Percentage of postmenopausal women above 2\% 10-year absolute risk
+```{r}
+round(mean(output_postmeno_10y$risk >= 0.02) * 100,1)
+```
+
+Number of postmenopausal women above 2\% 10-year absolute risk
+```{r}
+pop_total_above_0.02AR_postmeno = round(round(mean(output_postmeno_10y$risk >= 0.02),3) * 
+                                          pop_total_postmeno, 0)
+pop_total_above_0.02AR_postmeno
+```
+
+Number of future cases in the group above 2\% 10-year absolute risk
+```{r}
+cases_total_above_0.02AR_postmeno = 
+  round(round(mean(output_postmeno_10y$risk[output_postmeno_10y$risk >= 0.02]),3) * 
+          pop_total_above_0.02AR_postmeno,0)
+cases_total_above_0.02AR_postmeno
+```
+Percentage of future cases in the group above 1\% 5-year absolute risk
+```{r}
+round((cases_total_above_0.02AR_postmeno/cases_total_postmeno)*100,1)
+```
+
+
