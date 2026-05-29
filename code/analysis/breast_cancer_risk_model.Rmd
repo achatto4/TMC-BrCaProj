@@ -1,0 +1,2113 @@
+---
+title: "Breast Cancer Risk Prediction in Indian Population"
+author: "Parichoy Pal Choudhury"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Install the required packages and libraries
+```{r, message = FALSE}
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+#
+# BiocManager::install("iCARE")
+library(readstata13)
+library(plotrix)
+library(dplyr)
+library(gdata)
+library(openxlsx)
+library(brglm2)
+library(naniar)
+library(iCARE)
+library(ggplot2)
+library(purrr)
+library(janitor)
+```
+
+## Project root
+```{r}
+# Single source of truth for the project location. Override via env var:
+#   Sys.setenv(TMC_PROJECT_ROOT = "/path/to/TMC_BCProject")  before sourcing.
+proj_root <- Sys.getenv(
+  "TMC_PROJECT_ROOT",
+  unset = "/Users/anaghchattopadhyay/Documents/Nilanjan Project/TMC_BCProject"
+)
+```
+
+## Reference panel and projection age boundaries
+```{r}
+# Age cutoff used to assign women to the premenopausal vs postmenopausal
+# stratum. 48 is the integer that minimises menopausal misclassification on
+# TMC data (16.5%, vs 19.5% at 45). All reference filters, NFHS/LASI
+# selection, and population-projection bands read from these four values --
+# changing them in one place updates the entire pipeline.
+premeno_age_min  <- 25  # NFHS women's recode lower analytical bound
+premeno_age_max  <- 48  # inclusive upper bound (premeno stratum)
+postmeno_age_min <- 49  # inclusive lower bound (= premeno_age_max + 1)
+postmeno_age_max <- 68  # 78 is the iCARE 10-yr cap; 68 retained for parity with prior runs
+```
+
+
+## TMC covariate categorization helpers
+```{r}
+# Single source of truth for the model-covariate cutpoints. Training prep
+# (both `data` and `final_data` builds) and validation prep all call these,
+# so the rules can never drift between the two.
+
+categorize_aftp <- function(aftp, parity) {
+  # 1 = <20; 2 = 20-21; 3 = 22-23; 4 = 24-25; 5 = >=26; 6 = nulliparous
+  out <- aftp
+  out[aftp < 20] <- 1
+  out[aftp %in% c(20, 21)] <- 2
+  out[aftp %in% c(22, 23)] <- 3
+  out[aftp %in% c(24, 25)] <- 4
+  out[aftp >= 26] <- 5
+  out[is.na(aftp) & parity == 0] <- 6
+  out
+}
+
+categorize_fulltermpreg <- function(parity, parous = NULL) {
+  # 0/1/2/3/4=>4. When `parous` is supplied, women with parous==0 are coded
+  # 0 (handles the final_data source where parity may be NA for nulliparous).
+  out <- if (is.null(parous)) parity else ifelse(parous == 0, 0, parity)
+  out[out >= 4] <- 4
+  out
+}
+
+categorize_count_at_two <- function(x) {
+  # 0/1/2=>2 -- used for both miscarriage and abortion counts.
+  out <- x
+  out[x >= 2] <- 2
+  out
+}
+
+categorize_interval_menarche_fftp <- function(interval_yr) {
+  # 0 = interval < 10 yr; 1 = interval >= 10 yr.
+  out <- interval_yr
+  out[interval_yr < 10] <- 0
+  out[interval_yr >= 10] <- 1
+  out
+}
+
+categorize_brfeed <- function(mean_months) {
+  # 1 = <12 mo; 2 = 12-23 mo; 3 = 24-35 mo; 4 = >=36 mo.
+  out <- mean_months
+  out[mean_months < 12] <- 1
+  out[mean_months >= 12 & mean_months < 24] <- 2
+  out[mean_months >= 24 & mean_months < 36] <- 3
+  out[mean_months >= 36] <- 4
+  out
+}
+
+categorize_diabetes <- function(diabetic_years, diabetes_yn) {
+  # 0 = no diabetes; 1 = 0-5 yr; 2 = 6-10 yr; 3 = >=11 yr.
+  out <- diabetic_years
+  out[diabetes_yn == 0] <- 0
+  out[diabetic_years <= 5] <- 1
+  out[diabetic_years >= 6 & diabetic_years <= 10] <- 2
+  out[diabetic_years >= 11] <- 3
+  out
+}
+
+categorize_bmi <- function(bmi) {
+  # 1 = <25; 2 = 25-29.9; 3 = >=30.
+  out <- rep(NA_real_, length(bmi))
+  out[bmi < 25] <- 1
+  out[bmi >= 25 & bmi < 30] <- 2
+  out[bmi >= 30] <- 3
+  out
+}
+
+collapse_bmi_underweight_with_normal <- function(bmicat) {
+  # When `bmicat` is pre-coded with 0 = <=18.5 and 1 = 18.5-24.9, collapse
+  # both into 1 (model 3-level coding lumps underweight with normal).
+  out <- bmicat
+  out[bmicat == 0 | bmicat == 1] <- 1
+  out
+}
+
+categorize_height <- function(height_cm) {
+  # 0 = <=150 cm; 1 = >150 & <=155; 2 = >155 & <=160; 3 = >160.
+  out <- rep(NA_real_, length(height_cm))
+  out[height_cm <= 150] <- 0
+  out[height_cm > 150 & height_cm <= 155] <- 1
+  out[height_cm > 155 & height_cm <= 160] <- 2
+  out[height_cm > 160] <- 3
+  out
+}
+
+categorize_whr <- function(whr) {
+  # 0 = <=0.84; 1 = >0.84 & <=0.94; 2 = >0.94.
+  out <- rep(NA_real_, length(whr))
+  out[whr <= 0.84] <- 0
+  out[whr > 0.84 & whr <= 0.94] <- 1
+  out[whr > 0.94] <- 2
+  out
+}
+```
+
+## Set the working directory to the location of the data and read the data
+```{r}
+
+data = read.dta13(file.path(proj_root, "Data/Questionnaire_28.04.2017.dta"),
+                  generate.factors = TRUE, nonint.factors = TRUE)
+data_new_meta = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/Meta_Data.xlsx"))
+data_new_validation = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/Breast cancer _Validation data set.xlsx"))
+data_DOE = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/data_new_meta_ids.xlsx"))
+data_mmgy = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/mamogram data _24.5.2025.xlsx"))
+#data_covariate_wise
+data_new_alcohol = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Alcohol/Alcohol_25.09.2023.xlsx"))
+data_new_alcohol_exlusive = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Alcohol/Alcohol_exclusive_07.10.2023.xlsx"))
+data_new_alcohol_inclusive = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Alcohol/Alcohol_inclusive_07.10.2023.xlsx"))
+data_new_alcohol_jan26 = read.xlsx(file.path(proj_root, "Data/BCRPM_Data_24.11/Data_24.11.2025/Alcohol/Alcohol_07.10.25.xlsx"))
+data_new_anthropometry_ank = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Anthropometry/Anthropometry_13072023 - Ankita.xlsx"))
+data_new_anthropometry = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Anthropometry/Anthropometry_13072023.xlsx"))
+data_new_anthropometry_jan26 = read.xlsx(file.path(proj_root, "Data/BCRPM_Data_24.11/Data_24.11.2025/Anthro/Anthro_BCRPM_10.10.2025.xlsx"))
+data_new_chewing = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Chewing/Chewing_inclusive_03.07.2024_final.xlsx"))
+data_new_chewing_jan26 = read.xlsx(file.path(proj_root, "Data/BCRPM_Data_24.11/Data_24.11.2025/Chewing_incl/chewing_BCRPM_10.10.2025.xlsx"))
+data_new_demography = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Demographics/Demography_details_12034_17062023.xlsx"))
+data_new_FH1 = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Family_history_of_cancer/Fam_hist_CA_Br_core_10.08.2023..xlsx"))
+data_new_FH = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Family_history_of_cancer/family_history_of_cancer_10.08.2023.xlsx"))
+data_new_PMH = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Personal_medical/Personl_medical_history_27.03.2024_final.xlsx"))
+data_new_PMH_jan26 = read.xlsx(file.path(proj_root, "Data/BCRPM_Data_24.11/Data_24.11.2025/Personal_med/personal_med_BCRPM_11.10.2025.xlsx"))
+data_new_reproductive = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Reproductive/Reproductive_25.07.2023_final.xlsx"))
+data_new_residence1 = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Residential_details/Last_5_3_year_RU_05.10.2023.xlsx"))
+data_new_residence2 = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Residential_details/Last_5_3_year_state_04.10.2023.xlsx"))
+data_new_residence3 = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Residential_details/POB_duration_12.09.2023.xlsx"))
+data_new_residence4 = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Residential_details/Residential_birth_current_final_17.06.2023.xlsx"))
+data_new_smoking = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/28.03.2025_Risk prediction model data/Smoking/Smoking_Incl_24.6.2024.xlsx"))
+data_new_smoking_jan26 = read.xlsx(file.path(proj_root, "Data/BCRPM_Data_24.11/Data_24.11.2025/Smoking_incl/Smoking_BCRPM_10.10.2025.xlsx"))
+data_residential_Nov2025 = read.csv(file.path(proj_root, "Article- Breast cancer risk prediction model/Original_data/Epi_data_residential/Residential_History/First_20_10_years_RU_9.11.25/Sheet1-Table 1.csv"))
+```
+
+
+```{r}
+# 1. Ensure DateOfInterview is Date class
+if (!inherits(data_DOE$DateOfInterview, "Date")) {
+  data_DOE$DateOfInterview <- as.Date(data_DOE$DateOfInterview, origin = "1899-12-30")
+}
+
+data_DOE = subset(data_DOE, Study.Centre == "TMH")
+
+data_mmgy = read.xlsx(file.path(proj_root, "Data/Breast cancer data - CCE.TMC/mamogram data _24.5.2025.xlsx"))
+
+# 2. Subset to mammography-linked records
+doe_mmgy <- subset(data_DOE, ID %in% data_mmgy$ID)
+
+# 3. Sort mammography-linked data by DateOfInterview (ascending = earliest first)
+doe_mmgy_sorted <- doe_mmgy[order(doe_mmgy$DateOfInterview), ]
+
+# 4. Determine cutoff index: halfway through mammography-linked interviews
+cutoff_index <- ceiling(nrow(doe_mmgy_sorted)/2)
+
+# 5. Get the cutoff date (the date of the halfway point)
+cutoff_date <- doe_mmgy_sorted$DateOfInterview[cutoff_index]
+cutoff_date
+# 6. Split entire data_DOE based on cutoff date
+#    People interviewed **on or before** cutoff date go to training; after go to test
+
+training_set <- subset(data_DOE, DateOfInterview <= cutoff_date)
+dim(training_set)
+test_set     <- subset(data_DOE, DateOfInterview >  cutoff_date)
+dim(test_set )
+
+# Save just the ID column as a txt file
+# write.table(test_set$ID, file = "test_IDs.txt", row.names = FALSE, col.names = FALSE, quote = FALSE)
+```
+
+```{r}
+head(data_residential_Nov2025)
+library(dplyr)
+
+data_residential_Nov2025 <- data_residential_Nov2025 %>%
+  mutate(
+    # Intended construct: rural only if the entire early-life window was rural;
+    # otherwise code as urban/non-fully-rural. Codes remain 1 = urban/non-rural,
+    # 2 = rural.
+    first_20_yr_res_RU_n = ifelse(!is.na(first_20_yr_res_RU_n) &
+                                    first_20_yr_res_RU_n == 2, 2, 1),
+    first_10_yr_res_RU_n = ifelse(!is.na(first_10_yr_res_RU_n) &
+                                    first_10_yr_res_RU_n == 2, 2, 1)
+  )
+```
+
+
+```{r}
+dataset_list <- list(
+  alcohol = data_new_alcohol_jan26,
+  anthropometry = data_new_anthropometry_jan26,
+  chewing = data_new_chewing_jan26,
+  smoking = data_new_smoking_jan26,
+  demography = data_new_demography,
+  FH1 = data_new_FH1,
+  FH2 = data_new_FH,
+  PMH = data_new_PMH_jan26,
+  reproductive = data_new_reproductive,
+  residence_new = data_residential_Nov2025
+)
+
+dataset_list <- map(dataset_list, ~clean_names(.x))
+all_columns <- c("id")
+repeated_columns <- list()
+final_data <- NULL
+
+for (name in names(dataset_list)) {
+  df <- dataset_list[[name]]
+  
+  # Remove duplicated columns (already present in previous datasets except 'id')
+  new_cols <- setdiff(names(df), "id")
+  duplicate_cols <- intersect(new_cols, all_columns)
+  
+  if (length(duplicate_cols) > 0) {
+    repeated_columns[[name]] <- duplicate_cols
+    df <- df %>% dplyr::select(-all_of(duplicate_cols))
+  }
+  
+  all_columns <- unique(c(all_columns, names(df)))
+  
+  # First iteration
+  if (is.null(final_data)) {
+    final_data <- df
+  } else {
+    final_data <- full_join(final_data, df, by = "id")
+  }
+}
+
+cat("🔁 Repeated columns (not bound multiple times):\n")
+print(repeated_columns)
+
+cat("\nFinal merged dataset dimensions:\n")
+print(dim(final_data))
+
+final_data$totalabortion <- data_DOE$Count_ab[
+  match(final_data$id, data_DOE$ID)
+]
+final_data$totalmiscarriage <- data_DOE$Count_mis[
+  match(final_data$id, data_DOE$ID)
+]
+```
+
+## Categories for age at first full term pregnancy
+```{r}
+data$ageatfirstfulltermpreg_cat <- categorize_aftp(
+  data$ageatfirstfulltermpreg, data$fulltermpreg
+)
+```
+
+## Categories for interval between menarche and full term pregnancy
+```{r}
+data$interval_menarche_firstbirth <- data$ageatfirstfulltermpreg -
+  data$whtagestartmensurating
+data$interval_menarche_firstbirth_cat <- categorize_interval_menarche_fftp(
+  data$interval_menarche_firstbirth
+)
+
+```
+
+## Categories for number of full term pregnancies
+```{r}
+data$fulltermpreg_cat <- categorize_fulltermpreg(data$fulltermpreg)
+```
+
+## Categories for number of induced abortions
+```{r}
+data$totalabortion_cat <- categorize_count_at_two(data$totalabortion)
+```
+
+## Categories for number of spontaneous abortions
+```{r}
+data$totalmiscarriage_cat <- categorize_count_at_two(data$totalmiscarriage)
+```
+
+## Categories for duration of breastfeeding
+```{r}
+data$mean_brfeed_duration_cat <- categorize_brfeed(data$mean_brfeed_duration)
+```
+
+## Categories for duration of diabetes
+```{r}
+data$diabetic_years_cat <- categorize_diabetes(data$diabetic_years, data$diabetes_YN)
+```
+
+## Collapsing the <=18.5 and 18.5-24.9 categories for BMI
+```{r}
+data$bmicat <- collapse_bmi_underweight_with_normal(data$bmicat)
+```
+
+#######################################################################################
+## Categories for number of full term pregnancies
+```{r}
+final_data$fulltermpreg_cat <- categorize_fulltermpreg(
+  final_data$parity, parous = final_data$parous
+)
+```
+
+## Categories for age at first full term pregnancy
+```{r}
+final_data$ageatfirstfulltermpreg <- final_data$age_fftp
+final_data$ageatfirstfulltermpreg_cat <- categorize_aftp(
+  final_data$ageatfirstfulltermpreg, final_data$fulltermpreg_cat
+)
+```
+
+## Categories for interval between menarche and full term pregnancy
+```{r}
+final_data$interval_menarche_firstbirth <- final_data$age_fftp -
+  final_data$age_menarche
+final_data$interval_menarche_firstbirth_cat <- categorize_interval_menarche_fftp(
+  final_data$interval_menarche_firstbirth
+)
+
+```
+
+## Categories for number of induced abortions (Not present)
+```{r}
+final_data$totalabortion_cat <- categorize_count_at_two(final_data$totalabortion)
+```
+
+## Categories for number of spontaneous abortions (Not present)
+```{r}
+final_data$totalmiscarriage_cat <- categorize_count_at_two(final_data$totalmiscarriage)
+```
+
+## Categories for duration of breastfeeding
+```{r}
+final_data$mean_brfeed_duration <- ifelse(
+  !is.na(final_data$fulltermpreg_cat) & final_data$fulltermpreg_cat > 0,
+  final_data$breast_mos / final_data$fulltermpreg_cat,
+  NA_real_
+)
+final_data$mean_brfeed_duration_cat <- categorize_brfeed(final_data$mean_brfeed_duration)
+```
+
+## Categories for duration of diabetes
+```{r}
+final_data$diabetic_years_cat <- categorize_diabetes(
+  final_data$diabetes_duration, final_data$diabetes_yn
+)
+```
+
+```{r}
+# family_history_of_beo
+final_data$family_sitory_of_beo <- as.integer(
+  final_data$f_his_fst_bc == 1 |
+  final_data$f_his_fst_oc == 1 |
+  final_data$ca_end_yn == 1
+)
+```
+
+
+```{r}
+#############
+final_data$Avg_Height = ifelse(is.na(final_data$height_1), final_data$height_2, 
+                                ifelse(is.na(final_data$height_2), final_data$height_1, 
+                                       0.5 * (final_data$height_1 + final_data$height_2)))
+
+final_data$catht <- categorize_height(final_data$Avg_Height)
+
+
+###############
+final_data$ratio <- categorize_whr(final_data$waist_to_hip_ratio)
+
+################
+final_data$case_site = as.factor(final_data$case_site)
+
+################
+# final_data$first_20_yr_res_RU_n[!(final_data$first_20_yr_res_RU_n %in% c(1, 2))] <- NA
+
+################
+final_data$oc_ever[!(final_data$oc_ever %in% c(1, 0))] <- NA
+
+#################
+final_data$education_self <- ifelse(final_data$education_self > 4, 2, 1)
+
+#################
+final_data$catmenopause = final_data$mens_age_last
+final_data$catmenopause[final_data$mens_age_last <= 40] = 0
+final_data$catmenopause[final_data$mens_age_last > 40 & 
+                        final_data$mens_age_last <= 45] = 1
+final_data$catmenopause[final_data$mens_age_last > 45 & 
+                        final_data$mens_age_last <= 50] = 2
+final_data$catmenopause[final_data$mens_age_last > 50] = 3
+
+##################
+final_data$bmicat <- categorize_bmi(final_data$bmi)
+
+###################
+
+final_data$case_site <- factor(
+  final_data$case_site,
+  levels = c("Control", "Breast Ca."),
+  labels = c("Control", "Breast Cancer Case")
+)
+
+final_data$br <- final_data$case_site
+final_data$oc <- final_data$oc_ever
+final_data$menopause <- factor(
+  final_data$meno_stat,
+  levels = c(1, 2),
+  labels = c("premenopausal", "postmenopausal")
+)
+
+# Diagnostic: confirm menopause counts and age distribution.
+# Any meno_stat value outside {1, 2} is silently coerced to NA above and
+# then dropped by downstream menopause-stratified filters; surface it here
+# so future data refreshes don't lose women without a trace.
+cat("\nTMC menopause classification (n by status):\n")
+print(table(final_data$menopause, useNA = "ifany"))
+# Age isn't yet attached to final_data at this point, so pull it from the
+# anthropometry source for the diagnostic only.
+diag_age <- data_new_anthropometry_jan26$Age[
+  match(final_data$id, data_new_anthropometry_jan26$ID)
+]
+cat("Age by menopause status (from anthropometry source):\n")
+for (s in c("premenopausal", "postmenopausal")) {
+  # which() drops NA mask elements (vs `[mask]`, which keeps them as NA),
+  # so NA-menopause rows don't leak NA values into the summary.
+  idx <- which(!is.na(diag_age) & final_data$menopause == s)
+  a <- diag_age[idx]
+  if (length(a)) cat(sprintf("  %-15s n=%4d  median=%g  range=[%g, %g]\n",
+                             s, length(a),
+                             round(median(a), 1),
+                             round(min(a), 1),
+                             round(max(a), 1)))
+}
+
+final_data$family_sitory_of_beo <- factor(
+  final_data$family_sitory_of_beo,
+  levels = c(0, 1),
+  labels = c("No", "Yes")
+)
+
+# final_data$residancefirsttwentyyears <- factor(
+#   final_data$first_20_yr_res_RU_n,
+#   levels = c(1, 2),
+#   labels = c("urban", "rural")
+# )
+
+data$id <- data$id6
+
+# Snapshot the merged dataset BEFORE applying the training-set filter so the
+# validation prep below can reuse it instead of re-loading every TMC source
+# file. Everything added above (categorizations, factor conversions, source-
+# file joins) is therefore visible to both halves.
+final_data_full <- final_data
+final_data <- final_data[ final_data$id %in% training_set$ID, ]
+```
+#######################################################################################
+
+```{r}
+# Define the columns to bind (must already exist in both data and final_data)
+cols_to_bind <- c("id",
+  "menopause",
+  "br",
+  "ageatfirstfulltermpreg_cat",
+  "interval_menarche_firstbirth_cat",
+  "fulltermpreg_cat",
+  "oc",
+  "mean_brfeed_duration_cat",
+  "totalabortion_cat",
+  "totalmiscarriage_cat",
+  "catht",
+  "bmicat",
+  "ratio", "family_sitory_of_beo", "catmenopause", "ageatfirstfulltermpreg"
+)
+
+# Bind the rows: take only those columns from final_data and append to data
+library(dplyr)
+
+# Combine and keep the OLD-data version for duplicates (it is stacked first
+# below, and `distinct(id, .keep_all = TRUE)` keeps the first occurrence).
+# This is what rescues new-cohort women whose 2025 xlsx files don't have a
+# matching row in the 2023 reproductive extract -- they fall back to the
+# labelled `menopause` factor from the old questionnaire.
+data <- bind_rows(
+  data[, cols_to_bind, drop = FALSE],
+  final_data[, cols_to_bind, drop = FALSE]
+) %>%
+  distinct(id, .keep_all = TRUE)
+
+# Post-bind diagnostic: this is the true model-frame menopause distribution,
+# AFTER the old questionnaire has rescued any new-cohort NAs.
+cat("\nCombined `data` menopause classification AFTER bind_rows + distinct:\n")
+print(table(data$menopause, useNA = "ifany"))
+cat("Truly NA-menopause rows (silently dropped by GLM strata): ",
+    sum(is.na(data$menopause)), "\n", sep = "")
+
+#############ADD RESIDENTIAL DATA
+# Match IDs in 'data' to 'data_residential_Nov2025'
+matched_vals <- data_residential_Nov2025$first_20_yr_res_RU_n[
+  match(data$id, data_residential_Nov2025$ID)
+]
+
+# Add the harmonized residential variable used by the model.
+data$first_20_yr_res_RU_n <- matched_vals
+names(data)[names(data) == "first_20_yr_res_RU_n"] <- "residancefirsttwentyyears"
+
+data$br_lump_yn <- data_new_PMH_jan26$br_lump_YN[
+  match(data$id, data_new_PMH_jan26$ID)
+]
+
+data$diabetes_yn <- data_new_PMH_jan26$Diabetes_YN[
+  match(data$id, data_new_PMH_jan26$ID)
+]
+
+data$hypertension_yn <- data_new_PMH_jan26$hypertension_YN[
+  match(data$id, data_new_PMH_jan26$ID)
+]
+
+# alcohol_yn
+data$alcohol_yn <- data_new_alcohol_jan26$Alcohol_YN[
+  match(data$id, data_new_alcohol_jan26$ID)
+]
+
+# tobacco_chewing_yn
+data$tobacco_chewing_yn <- data_new_chewing_jan26$Tobacco_chewing_YN[
+  match(data$id, data_new_chewing_jan26$ID)
+]
+
+# tobacco_chewing_yn
+data$tobacco_chewing_age <- data_new_chewing_jan26$Any_tobacco_chewing_age_at_start[
+  match(data$id, data_new_chewing_jan26$ID)
+]
+
+# smoking_yn
+data$smoking_yn <- data_new_smoking_jan26$Smoking_YN[
+  match(data$id, data_new_smoking_jan26$ID)
+]
+
+# body_size_age_10_cat
+data$body_size_age_10_cat <- data_new_anthropometry_jan26$body_size_age_10_cat[
+  match(data$id, data_new_anthropometry_jan26$ID)
+]
+
+# body_size_age_20_cat
+data$body_size_age_20_cat <- data_new_anthropometry_jan26$body_size_age_20_cat[
+  match(data$id, data_new_anthropometry_jan26$ID)
+]
+
+# body_size_now_cat
+data$body_size_now_cat <- data_new_anthropometry_jan26$body_size_now_cat[
+  match(data$id, data_new_anthropometry_jan26$ID)
+]
+
+# body_size_now_cat
+data$Age <- data_new_anthropometry_jan26$Age[
+  match(data$id, data_new_anthropometry_jan26$ID)
+]
+```
+
+```{r}
+data$alcohol_yn[data$alcohol_yn == 2] <- 0
+####################################################
+case_ids <- data$id[data$br == "Breast Cancer Case"]
+case_pmh <- data_new_PMH_jan26[data_new_PMH_jan26$ID %in% case_ids, ]
+
+# Step 3: Keep only cases with br_lump_age <= 3 years (and not missing)
+pmh_with_young_lump <- case_pmh[
+    !is.na(case_pmh$br_lump_age) & case_pmh$Age - case_pmh$br_lump_age <= 3,
+]
+
+# Step 4: Number of unique such breast cancer cases
+num_people <- length(unique(pmh_with_young_lump$ID))
+cat("Number of 'Breast Cancer' cases with br_lump_age <= 3 year:", num_people, "\n")
+
+# Step 5: See their details
+result_details <- pmh_with_young_lump[, c("ID", "Age", "br_lump_age")]
+print(result_details)
+
+# Get IDs to remove
+ids_to_remove <- unique(pmh_with_young_lump$ID)
+
+# Remove these IDs from 'data'
+data <- data[!data$id %in% ids_to_remove, ]
+
+################################################################
+
+# case_ids <- data$id[data$br == "Breast Cancer Case"]
+# case_pmh <- data_new_PMH_jan26[data_new_PMH_jan26$ID %in% case_ids, ]
+# 
+# # Step 3: Keep only cases with br_lump_age <= 1 years (and not missing)
+# pmh_with_hptn <- case_pmh[
+#     !is.na(case_pmh$hypertension_age) & case_pmh$Age - case_pmh$hypertension_age <= 3,
+# ]
+# 
+# # Step 4: Number of unique such breast cancer cases
+# num_people <- length(unique(pmh_with_hptn$ID))
+# cat("Number of 'Breast Cancer' cases with hypertension_age <= 3 year:", num_people, "\n")
+# 
+# # Step 5: See their details
+# result_details <- pmh_with_hptn[, c("ID", "Age", "hypertension_age")]
+# print(result_details)
+# 
+# # Get IDs to remove
+# ids_to_remove <- unique(pmh_with_hptn$ID)
+# 
+# # Remove these IDs from 'data'
+# data <- data[!data$id %in% ids_to_remove, ]
+
+####################################################################
+
+# Create timing variable
+data$tobacco_chewing_timing <- ifelse(
+  data$tobacco_chewing_yn == 0 | is.na(data$tobacco_chewing_yn),
+  0,
+  ifelse(
+    !is.na(data$tobacco_chewing_age) & !is.na(data$ageatfirstfulltermpreg) & 
+      data$tobacco_chewing_age < data$ageatfirstfulltermpreg,
+    1,
+    2
+  )
+)
+
+# Replace tobacco_chewing_yn with the timing variable (as factor)
+data$tobacco_chewing_yn <- as.factor(data$tobacco_chewing_timing)
+
+# Remove the intermediate variable
+data$tobacco_chewing_timing <- NULL
+
+data <- data[, !names(data) %in% c("ageatfirstfulltermpreg", "tobacco_chewing_age", "tobacco_chewing_timing")]
+```
+
+```{r}
+table(data[,c("menopause","residancefirsttwentyyears","br")])
+```
+
+```{r}
+# Function to compute NA percentage for a given group
+compute_na_pct <- function(data, variable, br_value, menopause_status) {
+  # Use which() to avoid NA propagation in logical indexing
+  subset_data <- data[which(data$br == br_value & data$menopause == menopause_status), ]
+  
+  total_n <- nrow(subset_data)
+  
+  # Handle edge case of empty subset
+  if (total_n == 0) {
+    return(NA_real_)
+  }
+  
+  # Check if variable exists in data
+  if (!variable %in% names(subset_data)) {
+    warning(paste("Variable", variable, "not found in data"))
+    return(NA_real_)
+  }
+  
+  na_n <- sum(is.na(subset_data[[variable]]))
+  na_pct <- round(100 * na_n / total_n, 2)
+  
+  return(na_pct)
+}
+
+# Variables to check
+vars <- c("id", "ageatfirstfulltermpreg_cat", "interval_menarche_firstbirth_cat",
+          "fulltermpreg_cat", "oc", "mean_brfeed_duration_cat",
+          "totalabortion_cat", "totalmiscarriage_cat", "catht", "bmicat", "ratio", 
+          "family_sitory_of_beo", "residancefirsttwentyyears", "catmenopause", 
+          "br_lump_yn", "alcohol_yn", "tobacco_chewing_yn", "smoking_yn",
+          "body_size_age_10_cat", "body_size_age_20_cat", "body_size_now_cat", "Age")
+
+# Initialize an empty data frame to store results
+summary_df <- data.frame(variable = vars, stringsAsFactors = FALSE)
+
+# Add columns for each group combination
+summary_df$Control_Premenopausal <- sapply(vars, function(v) 
+  compute_na_pct(data, v, "Control", "premenopausal"))
+summary_df$Control_Postmenopausal <- sapply(vars, function(v) 
+  compute_na_pct(data, v, "Control", "postmenopausal"))
+summary_df$Case_Premenopausal <- sapply(vars, function(v) 
+  compute_na_pct(data, v, "Breast Cancer Case", "premenopausal"))
+summary_df$Case_Postmenopausal <- sapply(vars, function(v) 
+  compute_na_pct(data, v, "Breast Cancer Case", "postmenopausal"))
+
+# View the result
+print(summary_df)
+
+```
+
+```{r}
+# Probabilistic hot-deck imputation for TMC training data.
+# Per cov_TMC_BrCa.pdf: missing categorical model covariates are imputed via
+# a random nearest-neighbor (Gower distance) hot deck with m = 5 panels,
+# stratified by case status and menopause group. Cell-wise imputed values
+# are pooled across the five panels using the modal category, and the
+# resulting completed dataset is used to fit the relative-risk GLM once.
+source(file.path(proj_root, "TMC-BrCaProj/analysis/current/R/reference_imputation.R"))
+
+tmc_model_covariates <- c(
+  "bmicat", "ratio", "residancefirsttwentyyears",
+  "ageatfirstfulltermpreg_cat", "fulltermpreg_cat",
+  "catht", "totalmiscarriage_cat", "br_lump_yn", "tobacco_chewing_yn"
+)
+tmc_model_covariates <- intersect(tmc_model_covariates, names(data))
+
+data <- impute_joint_hotdeck_grouped(
+  data,
+  covariates      = tmc_model_covariates,
+  group_vars      = c("br", "menopause"),
+  continuous_vars = c("Age"),
+  nearest_donors  = 5,
+  m               = 5,
+  seed            = 20260529,
+  verbose         = FALSE
+)
+
+cat("\nFinal missing value check on model covariates (after hot-deck):\n")
+print(colSums(is.na(data[, tmc_model_covariates, drop = FALSE])))
+```
+
+
+## Subset the data to pre-menopausal women
+```{r}
+data_premeno = data[which(as.character(data$menopause) == "premenopausal"),]
+```
+
+## Number of cases and controls
+```{r}
+table(data_premeno$br)
+```
+
+
+## Relative risk model for premenopausal women
+
+```{r}
+model_premeno <- glm(
+  br ~ Age +
+    as.factor(bmicat) * as.factor(ratio) + 
+    as.factor(totalmiscarriage_cat) +
+    as.factor(residancefirsttwentyyears) * as.factor(bmicat) +
+    as.factor(residancefirsttwentyyears) * as.factor(ratio) +
+    as.factor(ageatfirstfulltermpreg_cat) +
+    as.factor(catht) +
+    as.factor(br_lump_yn) +
+    as.factor(tobacco_chewing_yn)
+,
+  data = data_premeno,
+  family = binomial(link = logit),
+  na.action = na.omit
+)
+
+cbind(exp(coef(model_premeno)),exp(confint(model_premeno)))
+
+model.frame(model_premeno) |> nrow()
+nrow(data_premeno)
+
+summary(model_premeno)
+```
+
+## Subset the data to post-menopausal women
+```{r}
+data_postmeno = data[which(as.character(data$menopause) == "postmenopausal"),]
+```
+## Number of cases and controls
+```{r}
+table(data_postmeno$br)
+```
+
+
+```{r}
+
+
+model_postmeno <- glm(
+ br ~ Age +
+    as.factor(bmicat) * as.factor(ratio) +
+    as.factor(catht) +
+   relevel(as.factor(fulltermpreg_cat), ref = "2") +
+    as.factor(residancefirsttwentyyears) * as.factor(bmicat) +
+    as.factor(residancefirsttwentyyears) * as.factor(ratio)+
+   # as.factor(residancefirsttwentyyears) * as.factor(ageatfirstfulltermpreg_cat) +
+    as.factor(totalmiscarriage_cat) +
+     as.factor(br_lump_yn) +
+     as.factor(tobacco_chewing_yn),
+  data = data_postmeno,
+  family = binomial(link = logit),
+  na.action = na.omit
+)
+
+
+
+
+# Odds Ratios and 95% Confidence Intervals
+cbind(exp(coef(model_postmeno)), exp(confint(model_postmeno)))
+
+# Model Summary
+summary(model_postmeno)
+
+
+```
+
+# Absolute risk prediction using iCARE
+
+##################################################################NEW_REFERENCE_DATA##############################################################################
+##################################################################################################################################################################
+##################################################################################################################################################################
+##################################################################################################################################################################
+##################################################################################################################################################################
+##################################################################################################################################################################
+# Absolute risk prediction using iCARE
+
+## Function to format incidence and mortality rates
+```{r}
+formatted_rates = function(mat){
+  if(ncol(mat)==3){
+    start <- mat[,1]
+    end   <- mat[,2]
+    rate  <- mat[,3]
+
+    integer_ages <- seq(min(start), max(end))
+    formatted    <- cbind( integer_ages, rep(NA, length(integer_ages)))
+    for(i in 1:nrow(mat)){
+      these              <- which(formatted[,1]>=start[i] &
+                                    formatted[,1]<=end[i])
+      #formatted[these,2] <- rate[i]/length(these)
+      formatted[these,2] <- rate[i]
+    }
+    colnames(formatted) <- c("ages", "rates")
+    formatted
+  }else{
+    formatted = mat
+  }
+  formatted
+}
+```
+
+## Formatting breast cancer incidence rate
+```{r}
+
+bc_inci = read.xlsx(file.path(proj_root, "Data/BC_Incidence_Rates.xlsx"))
+bc_inci = formatted_rates(bc_inci)
+bc_inci[,2] = bc_inci[,2]/100000
+```
+
+## Formatting overall mortality rate
+```{r}
+mort_inci = read.xlsx(file.path(proj_root, "Data/Overall_Mortality_Rates.xlsx"))
+mort_inci = formatted_rates(mort_inci)
+mort_inci[,2] = mort_inci[,2]/1000
+```
+
+## External profile data and reference helpers
+```{r}
+
+# `test_data` is retained for example absolute-risk profiles/red-line plots.
+# The population reference distributions now come from imputed NFHS/LASI data
+# built by reference_imputation.R, not from the older control CSV.
+test_data = read.xlsx(file.path(proj_root, "Data/parichoy_br_data_6.2.23.xlsx"))
+# The parichoy xlsx column is literally `mentruation_status` (typo in the
+# source file). Rename here so the rest of the code can use the corrected
+# spelling.
+names(test_data)[names(test_data) == "mentruation_status"] <- "menstruation_status"
+source(file.path(proj_root, "TMC-BrCaProj/analysis/current/R/reference_imputation.R"))
+```
+
+## Prepare external profile covariates for iCARE examples
+```{r}
+test_data$fulltermpreg_cat <- categorize_fulltermpreg(test_data$No_of_live_birth)
+test_data$ageatfirstfulltermpreg_cat <- categorize_aftp(
+  test_data$age_at_first_fullterm_preg, test_data$fulltermpreg_cat
+)
+test_data$totalmiscarriage_cat <- categorize_count_at_two(test_data$count_miscarriage)
+test_data$bmicat <- categorize_bmi(test_data$BMI)
+test_data$catht <- categorize_height(test_data$Avg_Height)
+test_data$ratio <- categorize_whr(test_data$waist_to_hip)
+
+test_data$residancefirsttwentyyears <- test_data$Current_res_RU
+test_data$br_lump_yn <- NA_real_
+test_data$tobacco_chewing_yn <- NA_real_
+
+test_profile_covariates <- c(
+  premeno_reference_covariates(),
+  postmeno_reference_covariates()
+)
+print(colSums(is.na(test_data[, intersect(test_profile_covariates, names(test_data)), drop = FALSE])))
+```
+
+## Imputed NFHS/LASI reference datasets
+```{r}
+control_donors_for_reference <- data[as.character(data$br) == "Control", ]
+
+reference_outputs <- build_reference_datasets(
+  control_data = control_donors_for_reference,
+  nfhs_path = file.path(proj_root, "Data/reference_data/Data-Sneha-reference/NFHS_ref_main.dta"),
+  lasi_path = file.path(proj_root, "Data/reference_data/Data-Sneha-reference/lasi_new.dta"),
+  lasi_age_path = file.path(proj_root, "Data/reference_data/LASI_extracted2.dta"),
+  output_dir = file.path(proj_root, "TMC-BrCaProj/data/reference"),
+  seed = 20260511,
+  m = 5,
+  verbose = TRUE
+)
+
+print(reference_outputs$donor_counts)
+print(reference_outputs$diagnostics)
+
+# The imputation approach is still provisional: this currently uses five
+# random nearest-neighbor hot-deck panels. We should later compare this with a
+# formal multiple-imputation workflow and decide how to combine panel-specific
+# absolute-risk predictions. The existing iCARE code below remains
+# backward-compatible by using panel 1 through reference_outputs$nfhs_premeno
+# and reference_outputs$lasi_postmeno; all five panels are stored in
+# reference_outputs$reference_panels.
+frequency_diagnostics <- reference_outputs$frequency_diagnostics
+
+print(frequency_diagnostics)
+print(
+  frequency_diagnostics[
+    frequency_diagnostics$variable %in% c("br_lump_yn", "tobacco_chewing_yn",
+                                          "residancefirsttwentyyears"),
+  ]
+)
+```
+
+
+## Reference dataset for premenopausal women
+```{r}
+make_icare_reference_panel <- function(reference_data, covariates,
+                                       min_age, max_age,
+                                       include_upper = TRUE) {
+  ref_data <- reference_data[, c("Age", "weight", covariates), drop = FALSE]
+  age_keep <- ref_data$Age >= min_age
+  age_keep <- if (include_upper) {
+    age_keep & ref_data$Age <= max_age
+  } else {
+    age_keep & ref_data$Age < max_age
+  }
+  ref_data <- ref_data[age_keep, , drop = FALSE]
+
+  list(
+    age = ref_data$Age,
+    weight = ref_data$weight,
+    covariates = ref_data[, covariates, drop = FALSE]
+  )
+}
+
+check_reference_panel_alignment <- function(reference_panel_list) {
+  first_age <- reference_panel_list[[1]]$age
+  first_weight <- reference_panel_list[[1]]$weight
+  first_n <- nrow(reference_panel_list[[1]]$covariates)
+
+  for (panel_i in seq_along(reference_panel_list)) {
+    if (nrow(reference_panel_list[[panel_i]]$covariates) != first_n ||
+        !identical(reference_panel_list[[panel_i]]$age, first_age) ||
+        !identical(reference_panel_list[[panel_i]]$weight, first_weight)) {
+      stop("Reference panel ", panel_i, " is not aligned with panel 1.")
+    }
+  }
+
+  invisible(TRUE)
+}
+
+premeno_reference_panels <- lapply(reference_outputs$reference_panels, function(panel) {
+  make_icare_reference_panel(
+    reference_data = panel$nfhs_premeno,
+    covariates = premeno_reference_covariates(),
+    min_age = premeno_age_min,
+    max_age = premeno_age_max,
+    include_upper = TRUE
+  )
+})
+check_reference_panel_alignment(premeno_reference_panels)
+
+# Panel 1 is retained for backward-compatible summaries; absolute-risk objects
+# below average risk over all imputed reference panels.
+age_premeno = premeno_reference_panels[[1]]$age
+
+# Survey weights for the premenopausal reference rows (NFHS). Aligned
+# row-for-row with output_premeno_*$risk and identical across panels.
+weight_premeno = premeno_reference_panels[[1]]$weight
+
+ref_data_premeno = premeno_reference_panels[[1]]$covariates
+
+dim(ref_data_premeno)
+
+##Setting up the test data premenopausal women
+test_data_premeno = test_data[test_data$menstruation_status == 1,]
+test_data_premeno = test_data_premeno[, c("age", premeno_reference_covariates())]
+
+#Study entry age for the premenopausal women
+age_premeno_test = test_data_premeno$age
+
+test_data_premeno = test_data_premeno[, premeno_reference_covariates()]
+test_data_premeno = coerce_to_allowed_levels(test_data_premeno, reference_allowed_levels())
+test_data_premeno = impute_joint_hotdeck(
+  reference_data = test_data_premeno,
+  donor_data = prepare_control_donors(
+    control_donors_for_reference[
+      as.character(control_donors_for_reference$menopause) == "premenopausal",
+    ]
+  ),
+  covariates = premeno_reference_covariates(),
+  match_vars = premeno_match_vars(),
+  constrained_values = reference_missing_constraints("NFHS_premenopausal"),
+  seed = 20260508,
+  nearest_donors = 5
+)
+```
+
+## Model formula for premenopausal women
+```{r}
+model.formula.premeno = br ~
+    as.factor(bmicat) * as.factor(ratio) +
+    as.factor(residancefirsttwentyyears) * as.factor(bmicat) +
+    as.factor(residancefirsttwentyyears) * as.factor(ratio) +
+    as.factor(ageatfirstfulltermpreg_cat) +
+    as.factor(catht) +
+    as.factor(totalmiscarriage_cat) +
+    as.factor(br_lump_yn) +
+    as.factor(tobacco_chewing_yn)
+```
+
+## Model covariate information for premenopausal women
+```{r}
+v1 = list()
+v1$name = "ageatfirstfulltermpreg_cat"
+v1$type = "factor"
+v1$levels = c("1","2","3","4","5","6")
+
+v6 = list()
+v6$name = "catht"
+v6$type = "factor"
+v6$levels = c("0","1","2","3")
+
+v8 = list()
+v8$name = "totalmiscarriage_cat"
+v8$type = "factor"
+v8$levels = c("0","1","2")
+
+v9 = list()
+v9$name = "residancefirsttwentyyears"
+v9$type = "factor"
+v9$levels = c("1","2")
+
+v10 = list()
+v10$name = "bmicat"
+v10$type = "factor"
+v10$levels = c("1","2","3")
+
+v11 = list()
+v11$name = "ratio"
+v11$type = "factor"
+v11$levels = c("0","1","2")
+
+v12 = list()
+v12$name = "br_lump_yn"
+v12$type = "factor"
+v12$levels = c("0","1")
+
+v13 = list()
+v13$name = "tobacco_chewing_yn"
+v13$type = "factor"
+v13$levels = c("0","1","2")
+
+cov.info.premeno = list(v10,v11,v9,v1,v6,v8,v12,v13)
+```
+
+##Model log relative risks for premenopausal women
+```{r}
+make_icare_cov_info_dataset <- function(cov_info) {
+  maximum_dim <- max(vapply(cov_info, function(x) {
+    if (identical(x$type, "factor")) length(x$levels) else 1L
+  }, integer(1)))
+  
+  data_use <- data.frame(.starter = rep(0, maximum_dim))
+  for (cov in cov_info) {
+    if (identical(cov$type, "continuous")) {
+      data_use[[cov$name]] <- rep(0, maximum_dim)
+    } else if (identical(cov$type, "factor")) {
+      levels <- as.character(cov$levels)
+      values <- c(levels, rep(levels[1], maximum_dim - length(levels)))
+      data_use[[cov$name]] <- factor(values, levels = unique(values))
+      if (!is.null(cov$ref)) {
+        data_use[[cov$name]] <- relevel(data_use[[cov$name]], ref = as.character(cov$ref))
+      }
+    } else {
+      stop("Unsupported covariate type in cov.info: ", cov$type)
+    }
+  }
+  data_use$.starter <- NULL
+  data_use
+}
+
+get_log_rr_for_icare <- function(model, model_formula, cov_info) {
+  data_use <- make_icare_cov_info_dataset(cov_info)
+  data_use[[all.vars(model_formula)[1]]] <- 0
+  design_names <- colnames(model.matrix(model_formula, data = as.data.frame(data_use)))[-1]
+  model_coef <- coef(model)
+  missing_coef <- setdiff(design_names, names(model_coef))
+  if (length(missing_coef) > 0) {
+    stop(
+      "Missing model coefficients for iCARE design matrix: ",
+      paste(missing_coef, collapse = ", ")
+    )
+  }
+  
+  log_rr <- model_coef[design_names]
+  matrix(log_rr, ncol = 1, dimnames = list(design_names, "log.RR"))
+}
+
+logRR_premeno = get_log_rr_for_icare(model_premeno, model.formula.premeno, cov.info.premeno)
+saveRDS(logRR_premeno, file = file.path(proj_root, "Data/logRR_premeno.rds"))
+
+pool_icare_panel_outputs <- function(panel_outputs) {
+  risk_by_panel <- do.call(cbind, lapply(panel_outputs, function(output) {
+    output$risk
+  }))
+  colnames(risk_by_panel) <- sprintf("panel_%02d", seq_along(panel_outputs))
+
+  pooled_output <- panel_outputs[[1]]
+  pooled_output$risk <- rowMeans(risk_by_panel, na.rm = TRUE)
+  pooled_output$risk_by_panel <- risk_by_panel
+  pooled_output$risk_panel_summary <- data.frame(
+    panel = seq_along(panel_outputs),
+    mean_risk = colMeans(risk_by_panel, na.rm = TRUE),
+    median_risk = apply(risk_by_panel, 2, median, na.rm = TRUE),
+    stringsAsFactors = FALSE
+  )
+  pooled_output$risk_pooling_method <- "row_mean_across_imputed_reference_panels"
+
+  pooled_output
+}
+
+compute_absolute_risk_over_reference_panels <- function(reference_panel_list,
+                                                        model_formula,
+                                                        cov_info,
+                                                        log_rr,
+                                                        interval_length,
+                                                        apply_age_start = NULL,
+                                                        apply_cov_profile = NULL) {
+  panel_outputs <- lapply(seq_along(reference_panel_list), function(panel_i) {
+    reference_panel <- reference_panel_list[[panel_i]]
+    panel_apply_age <- if (is.null(apply_age_start)) {
+      reference_panel$age
+    } else {
+      apply_age_start
+    }
+    panel_apply_profile <- if (is.null(apply_cov_profile)) {
+      reference_panel$covariates
+    } else {
+      apply_cov_profile
+    }
+
+    computeAbsoluteRisk(
+      model.formula = model_formula,
+      model.cov.info = cov_info,
+      model.snp.info = NULL,
+      model.log.RR = log_rr,
+      model.ref.dataset = reference_panel$covariates,
+      model.ref.dataset.weights = reference_panel$weight,
+      model.disease.incidence.rates = bc_inci,
+      model.competing.incidence.rates = mort_inci,
+      model.bin.fh.name = NA,
+      apply.age.start = panel_apply_age,
+      apply.age.interval.length = interval_length,
+      apply.cov.profile = panel_apply_profile,
+      apply.snp.profile = NULL,
+      return.lp = TRUE,
+      return.refs.risk = TRUE
+    )
+  })
+
+  pool_icare_panel_outputs(panel_outputs)
+}
+```
+
+
+## Absolute risk distribution for premenopausal women
+```{r}
+## 5-year risk
+output_premeno_5y = compute_absolute_risk_over_reference_panels(
+  reference_panel_list = premeno_reference_panels,
+  model_formula = model.formula.premeno,
+  cov_info = cov.info.premeno,
+  log_rr = logRR_premeno,
+  interval_length = 5
+)
+
+output_premeno_test_5y = compute_absolute_risk_over_reference_panels(
+  reference_panel_list = premeno_reference_panels,
+  model_formula = model.formula.premeno,
+  cov_info = cov.info.premeno,
+  log_rr = logRR_premeno,
+  interval_length = 5,
+  apply_age_start = age_premeno_test,
+  apply_cov_profile = test_data_premeno
+)
+
+summary(output_premeno_5y$risk * 100)
+summary(output_premeno_test_5y$risk * 100)
+print(output_premeno_5y$risk_panel_summary)
+print(output_premeno_test_5y$risk_panel_summary)
+
+#pdf("Five_year_AR_premenopausal.pdf")
+plot(density(output_premeno_5y$risk * 100),
+     xlim = c(0,4), ylim = c(0,4),
+     main = "Premenopausal Women",
+     xlab = "5-year absolute risk (%)", lwd = 3)
+abline(v = output_premeno_test_5y$risk * 100, col = "red")
+text(x = 3, y = 1,
+     labels = paste("Mean AR (%):",
+                    round(mean(output_premeno_5y$risk * 100),1)))
+#dev.off()
+
+## 10-year risk
+output_premeno_10y = compute_absolute_risk_over_reference_panels(
+  reference_panel_list = premeno_reference_panels,
+  model_formula = model.formula.premeno,
+  cov_info = cov.info.premeno,
+  log_rr = logRR_premeno,
+  interval_length = 10
+)
+
+output_premeno_test_10y = compute_absolute_risk_over_reference_panels(
+  reference_panel_list = premeno_reference_panels,
+  model_formula = model.formula.premeno,
+  cov_info = cov.info.premeno,
+  log_rr = logRR_premeno,
+  interval_length = 10,
+  apply_age_start = age_premeno_test,
+  apply_cov_profile = test_data_premeno
+)
+
+summary(output_premeno_10y$risk * 100)
+summary(output_premeno_test_10y$risk * 100)
+print(output_premeno_10y$risk_panel_summary)
+print(output_premeno_test_10y$risk_panel_summary)
+
+#pdf("Five_year_AR_premenopausal.pdf")
+plot(density(output_premeno_10y$risk * 100),
+     xlim = c(0,4), ylim = c(0,2),
+     main = "Premenopausal Women",
+     xlab = "10-year absolute risk (%)", lwd = 3)
+abline(v = output_premeno_test_10y$risk * 100, col = "red")
+text(x = 3, y = 1,
+     labels = paste("Mean AR (%):",
+                    round(mean(output_premeno_10y$risk * 100),1)))
+```
+
+```{r}
+postmeno_reference_panels <- lapply(reference_outputs$reference_panels, function(panel) {
+  make_icare_reference_panel(
+    reference_data = panel$lasi_postmeno,
+    covariates = postmeno_reference_covariates(),
+    min_age = postmeno_age_min,
+    max_age = postmeno_age_max,
+    include_upper = TRUE
+  )
+})
+check_reference_panel_alignment(postmeno_reference_panels)
+
+# Panel 1 is retained for backward-compatible summaries; absolute-risk objects
+# below average risk over all imputed reference panels.
+age_postmeno = postmeno_reference_panels[[1]]$age
+
+# Survey weights for the postmenopausal reference rows (LASI). Aligned
+# row-for-row with output_postmeno_*$risk and identical across panels.
+weight_postmeno = postmeno_reference_panels[[1]]$weight
+
+ref_data_postmeno = postmeno_reference_panels[[1]]$covariates
+
+test_data_postmeno = test_data[test_data$menstruation_status == 2,]
+test_data_postmeno = test_data_postmeno[, c("age", postmeno_reference_covariates())]
+
+#Study entry age for postmenopausal women
+age_postmeno_test = test_data_postmeno$age
+
+test_data_postmeno = test_data_postmeno[, postmeno_reference_covariates()]
+test_data_postmeno = coerce_to_allowed_levels(test_data_postmeno, reference_allowed_levels())
+test_data_postmeno = impute_joint_hotdeck(
+  reference_data = test_data_postmeno,
+  donor_data = prepare_control_donors(
+    control_donors_for_reference[
+      as.character(control_donors_for_reference$menopause) == "postmenopausal",
+    ]
+  ),
+  covariates = postmeno_reference_covariates(),
+  match_vars = postmeno_match_vars(),
+  constrained_values = reference_missing_constraints("LASI_postmenopausal"),
+  seed = 20260509,
+  nearest_donors = 5
+)
+
+```
+
+## Model formula for postmenopausal women
+```{r}
+model.formula.postmeno = br ~
+    as.factor(bmicat) * as.factor(ratio) +
+    as.factor(residancefirsttwentyyears) * as.factor(bmicat) +
+    as.factor(residancefirsttwentyyears) * as.factor(ratio) +
+    relevel(as.factor(fulltermpreg_cat), ref = "2") +
+    as.factor(catht) +
+    as.factor(totalmiscarriage_cat) +
+    as.factor(br_lump_yn) +
+    as.factor(tobacco_chewing_yn)
+```
+
+## Model covariate information for postmenopausal women
+```{r}
+v3 = list()
+v3$name = "fulltermpreg_cat"
+v3$type = "factor"
+v3$levels = c("0","1","2","3","4")
+v3$ref = "2"
+
+v8 = list()
+v8$name = "totalmiscarriage_cat"
+v8$type = "factor"
+v8$levels = c("0","1","2")
+
+v9 = list()
+v9$name = "catht"
+v9$type = "factor"
+v9$levels = c("0","1","2","3")
+
+v10 = list()
+v10$name = "bmicat"
+v10$type = "factor"
+v10$levels = c("1","2","3")
+
+v11 = list()
+v11$name = "ratio"
+v11$type = "factor"
+v11$levels = c("0","1","2")
+
+v12 = list()
+v12$name = "residancefirsttwentyyears"
+v12$type = "factor"
+v12$levels = c("1","2")
+
+v13 = list()
+v13$name = "br_lump_yn"
+v13$type = "factor"
+v13$levels = c("0","1")
+
+v14 = list()
+v14$name = "tobacco_chewing_yn"
+v14$type = "factor"
+v14$levels = c("0","1","2")
+
+cov.info.postmeno = list(v10,v11,v12,v3,v9,v8,v13,v14)
+```
+## Model log relative risks for postmenopausal women
+```{r}
+logRR_postmeno = get_log_rr_for_icare(model_postmeno, model.formula.postmeno, cov.info.postmeno)
+saveRDS(logRR_postmeno, file = file.path(proj_root, "Data/logRR_postmeno.rds"))
+```
+
+## Absolute risk distribution for postmenopausal women
+```{r}
+## 5-year risk
+output_postmeno_5y = compute_absolute_risk_over_reference_panels(
+  reference_panel_list = postmeno_reference_panels,
+  model_formula = model.formula.postmeno,
+  cov_info = cov.info.postmeno,
+  log_rr = logRR_postmeno,
+  interval_length = 5
+)
+
+output_postmeno_test_5y = compute_absolute_risk_over_reference_panels(
+  reference_panel_list = postmeno_reference_panels,
+  model_formula = model.formula.postmeno,
+  cov_info = cov.info.postmeno,
+  log_rr = logRR_postmeno,
+  interval_length = 5,
+  apply_age_start = age_postmeno_test,
+  apply_cov_profile = test_data_postmeno
+)
+
+summary(output_postmeno_5y$risk * 100)
+summary(output_postmeno_test_5y$risk * 100)
+print(output_postmeno_5y$risk_panel_summary)
+print(output_postmeno_test_5y$risk_panel_summary)
+
+#pdf("Five_year_AR_postmenopausal.pdf")
+plot(density(output_postmeno_5y$risk * 100),
+     xlim = c(0,4), ylim = c(0,4),
+     main = "Postmenopausal Women",
+     xlab = "5-year absolute risk (%)", lwd = 3)
+abline(v = output_postmeno_test_5y$risk * 100, col = "red")
+text(x = 3, y = 1,
+     labels = paste("Mean AR (%):",
+                    round(mean(output_postmeno_5y$risk * 100),1)))
+#dev.off()
+
+##10-year risk
+output_postmeno_10y = compute_absolute_risk_over_reference_panels(
+  reference_panel_list = postmeno_reference_panels,
+  model_formula = model.formula.postmeno,
+  cov_info = cov.info.postmeno,
+  log_rr = logRR_postmeno,
+  interval_length = 10
+)
+
+output_postmeno_test_10y = compute_absolute_risk_over_reference_panels(
+  reference_panel_list = postmeno_reference_panels,
+  model_formula = model.formula.postmeno,
+  cov_info = cov.info.postmeno,
+  log_rr = logRR_postmeno,
+  interval_length = 10,
+  apply_age_start = age_postmeno_test,
+  apply_cov_profile = test_data_postmeno
+)
+
+summary(output_postmeno_10y$risk * 100)
+summary(output_postmeno_test_10y$risk * 100)
+print(output_postmeno_10y$risk_panel_summary)
+print(output_postmeno_test_10y$risk_panel_summary)
+
+#pdf("Five_year_AR_postmenopausal.pdf")
+plot(density(output_postmeno_10y$risk * 100),
+     xlim = c(0,4), ylim = c(0,2),
+     main = "Postmenopausal Women",
+     xlab = "10-year absolute risk (%)", lwd = 3)
+abline(v = output_postmeno_test_10y$risk * 100, col = "red")
+text(x = 3.5, y = 1,
+     labels = paste("Mean AR (%):",
+                    round(mean(output_postmeno_10y$risk * 100),1)))
+#dev.off()
+```
+
+## Risk projections in the Indian population
+
+The projection calculations below use the row-wise mean absolute risk across
+the five imputed NFHS/LASI reference panels.
+
+Load the census data
+```{r}
+
+pop_data = read.xlsx(file.path(proj_root, "Data/Indian population numbers by Age (Census-2011).xlsx"))
+names(pop_data) = c("Age","Population")
+pop_data = pop_data[-1,]
+
+
+pop_data$Age = as.numeric(pop_data$Age)
+pop_data$Population = as.numeric(pop_data$Population)
+
+pop_data = na.omit(pop_data)
+```
+
+Age at menopause category definitions
+0: <= 40 years
+1: 41-45 years
+2: 46-50 years
+3: >= 51 years
+
+Look at the distribution of age at menopause to determine the age cutoff
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+# prop.table(table(ref_data_postmeno$catmenopause))
+```
+Median age at menopause roughly 45 years. Premenopausal group defined as 25-45 years and postmenopausal group defined as 45-68 years
+
+Population size in the premenopausal group:
+```{r}
+
+pop_total_premeno = sum(pop_data$Population[pop_data$Age >= premeno_age_min &
+                                              pop_data$Age <= premeno_age_max], na.rm = TRUE)
+pop_total_premeno
+```
+
+5-year risk projections
+
+Approximate number of future cases (within 5 years) in the premenopausal group:
+```{r}
+cases_total_premeno = round(pop_total_premeno *
+                              weighted.mean(output_premeno_5y$risk,
+                                            weight_premeno), 0)
+cases_total_premeno
+```
+
+
+Percentage of premenopausal women above 1\% 5-year absolute risk
+```{r}
+round(weighted.mean(output_premeno_5y$risk >= 0.01, weight_premeno) * 100,1)
+```
+
+
+Number of premenopausal women above 1\% 5-year absolute risk
+```{r}
+pop_total_above_0.01AR_premeno = round(
+  weighted.mean(output_premeno_5y$risk >= 0.01, weight_premeno) *
+    pop_total_premeno, 0
+)
+pop_total_above_0.01AR_premeno
+```
+
+
+
+Number of future cases in the group above 1\% 5-year absolute risk
+```{r}
+cases_total_above_0.01AR_premeno =
+  round(weighted.mean(output_premeno_5y$risk[output_premeno_5y$risk >= 0.01],
+                      weight_premeno[output_premeno_5y$risk >= 0.01]) *
+          pop_total_above_0.01AR_premeno, 0)
+cases_total_above_0.01AR_premeno
+```
+Percentage of future cases in the group above 1\% 5-year absolute risk
+```{r}
+round((cases_total_above_0.01AR_premeno/cases_total_premeno)*100,1)
+```
+
+Population size in the postmenopausal group:
+
+```{r}
+pop_total_postmeno = sum(pop_data$Population[pop_data$Age >= postmeno_age_min &
+                                              pop_data$Age <= postmeno_age_max], na.rm = TRUE)
+pop_total_postmeno
+```
+
+Approximate number of future cases (within 5 years) in the postmenopausal group:
+```{r}
+cases_total_postmeno = round(pop_total_postmeno *
+                               weighted.mean(output_postmeno_5y$risk,
+                                             weight_postmeno), 0)
+cases_total_postmeno
+```
+
+Percentage of postmenopausal women above 3\% 5-year absolute risk
+```{r}
+round(weighted.mean(output_postmeno_5y$risk >= 0.03, weight_postmeno) * 100,1)
+```
+
+Number of postmenopausal women above 3\% 5-year absolute risk
+```{r}
+pop_total_above_0.03AR_postmeno_5y = round(
+  weighted.mean(output_postmeno_5y$risk >= 0.03, weight_postmeno) *
+    pop_total_postmeno, 0
+)
+pop_total_above_0.03AR_postmeno_5y
+```
+
+Number of future cases in the group above 3\% 5-year absolute risk
+```{r}
+cases_total_above_0.03AR_postmeno_5y =
+  round(weighted.mean(output_postmeno_5y$risk[output_postmeno_5y$risk >= 0.03],
+                      weight_postmeno[output_postmeno_5y$risk >= 0.03]) *
+          pop_total_above_0.03AR_postmeno_5y, 0)
+cases_total_above_0.03AR_postmeno_5y
+```
+Percentage of future cases in the group above 3\% 5-year absolute risk
+```{r}
+round((cases_total_above_0.03AR_postmeno_5y/cases_total_postmeno)*100,1)
+```
+
+
+
+10-year risk projections
+
+Approximate number of future cases (within 10 years) in the premenopausal group:
+```{r}
+cases_total_premeno = round(pop_total_premeno *
+                              weighted.mean(output_premeno_10y$risk,
+                                            weight_premeno), 0)
+cases_total_premeno
+```
+
+
+Percentage of premenopausal women above 2\% 10-year absolute risk
+```{r}
+round(weighted.mean(output_premeno_10y$risk >= 0.02, weight_premeno) * 100,1)
+```
+
+
+Number of premenopausal women above 2\% 10-year absolute risk
+```{r}
+pop_total_above_0.02AR_premeno = round(
+  weighted.mean(output_premeno_10y$risk >= 0.02, weight_premeno) *
+    pop_total_premeno, 0
+)
+pop_total_above_0.02AR_premeno
+```
+
+Number of future cases in the group above 2\% 10-year absolute risk
+```{r}
+cases_total_above_0.02AR_premeno =
+  round(weighted.mean(output_premeno_10y$risk[output_premeno_10y$risk >= 0.02],
+                      weight_premeno[output_premeno_10y$risk >= 0.02]) *
+          pop_total_above_0.02AR_premeno, 0)
+cases_total_above_0.02AR_premeno
+```
+Percentage of future cases in the group above 2\% 10-year absolute risk
+```{r}
+round((cases_total_above_0.02AR_premeno/cases_total_premeno)*100,1)
+```
+
+Population size in the postmenopausal group:
+
+```{r}
+pop_total_postmeno = sum(pop_data$Population[pop_data$Age >= postmeno_age_min &
+                                              pop_data$Age <= postmeno_age_max], na.rm = TRUE)
+pop_total_postmeno
+```
+
+Approximate number of future cases (within 10 years) in the postmenopausal group:
+```{r}
+cases_total_postmeno = round(pop_total_postmeno *
+                               weighted.mean(output_postmeno_10y$risk,
+                                             weight_postmeno), 0)
+cases_total_postmeno
+```
+
+Percentage of postmenopausal women above 3\% 10-year absolute risk
+```{r}
+round(weighted.mean(output_postmeno_10y$risk >= 0.03, weight_postmeno) * 100,1)
+```
+
+Number of postmenopausal women above 3\% 10-year absolute risk
+```{r}
+pop_total_above_0.03AR_postmeno_10y = round(
+  weighted.mean(output_postmeno_10y$risk >= 0.03, weight_postmeno) *
+    pop_total_postmeno, 0
+)
+pop_total_above_0.03AR_postmeno_10y
+```
+
+Number of future cases in the group above 3\% 10-year absolute risk
+```{r}
+cases_total_above_0.03AR_postmeno_10y =
+  round(weighted.mean(output_postmeno_10y$risk[output_postmeno_10y$risk >= 0.03],
+                      weight_postmeno[output_postmeno_10y$risk >= 0.03]) *
+          pop_total_above_0.03AR_postmeno_10y, 0)
+cases_total_above_0.03AR_postmeno_10y
+```
+Percentage of future cases in the group above 3\% 10-year absolute risk
+```{r}
+round((cases_total_above_0.03AR_postmeno_10y/cases_total_postmeno)*100,1)
+```
+
+
+## Validation data prep
+```{r}
+# Reuse the merged dataset built in the training prep above. The training
+# section snapshots `final_data_full` BEFORE applying its training-set filter,
+# so the test-set view is just a row subset -- no need to re-load any of the
+# ~30 source TMC xlsx files or rebuild the dataset_list / merge loop here.
+final_data <- final_data_full[final_data_full$id %in% test_set$ID, ]
+cat("Validation final_data dims:", dim(final_data), "\n")
+```
+
+```{r}
+# Step 1: Get aligned values matching final_data$id
+aligned_first20 <- data_residential_Nov2025$first_20_yr_res_RU_n[
+  match(final_data$id, data_residential_Nov2025$ID)
+]
+
+# Step 2: Assign as new column
+final_data$first_20_yr_res_RU_n <- aligned_first20
+
+final_data$br_lump_yn <- data_new_PMH_jan26$br_lump_YN[
+  match(final_data$id, data_new_PMH_jan26$ID)
+]
+
+final_data$diabetes_yn <- data_new_PMH_jan26$Diabetes_YN[
+  match(final_data$id, data_new_PMH_jan26$ID)
+]
+
+final_data$hypertension_yn <- data_new_PMH_jan26$hypertension_YN[
+  match(final_data$id, data_new_PMH_jan26$ID)
+]
+
+# alcohol_yn
+final_data$alcohol_yn <- data_new_alcohol_jan26$Alcohol_YN[
+  match(final_data$id, data_new_alcohol_jan26$ID)
+]
+
+# tobacco_chewing_yn
+final_data$tobacco_chewing_yn <- data_new_chewing_jan26$Tobacco_chewing_YN[
+  match(final_data$id, data_new_chewing_jan26$ID)
+]
+
+# tobacco_chewing_yn
+final_data$tobacco_chewing_age <- data_new_chewing_jan26$Any_tobacco_chewing_age_at_start[
+  match(final_data$id, data_new_chewing_jan26$ID)
+]
+
+# smoking_yn
+final_data$smoking_yn <- data_new_smoking_jan26$Smoking_YN[
+  match(final_data$id, data_new_smoking_jan26$ID)
+]
+
+# body_size_age_10_cat
+final_data$body_size_age_10_cat <- data_new_anthropometry_jan26$body_size_age_10_cat[
+  match(final_data$id, data_new_anthropometry_jan26$ID)
+]
+
+# body_size_age_20_cat
+final_data$body_size_age_20_cat <- data_new_anthropometry_jan26$body_size_age_20_cat[
+  match(final_data$id, data_new_anthropometry_jan26$ID)
+]
+
+# body_size_now_cat
+final_data$body_size_now_cat <- data_new_anthropometry_jan26$body_size_now_cat[
+  match(final_data$id, data_new_anthropometry_jan26$ID)
+]
+
+# body_size_now_cat
+final_data$Age <- data_new_anthropometry_jan26$Age[
+  match(final_data$id, data_new_anthropometry_jan26$ID)
+]
+
+names(final_data)[names(final_data) == "first_20_yr_res_RU_n"] <- "residancefirsttwentyyears"
+```
+
+## Categories for number of full term pregnancies
+```{r}
+final_data$fulltermpreg_cat <- categorize_fulltermpreg(
+  final_data$parity, parous = final_data$parous
+)
+```
+
+## Categories for age at first full term pregnancy
+```{r}
+final_data$ageatfirstfulltermpreg <- final_data$age_fftp
+final_data$ageatfirstfulltermpreg_cat <- categorize_aftp(
+  final_data$ageatfirstfulltermpreg, final_data$fulltermpreg_cat
+)
+```
+
+## Categories for interval between menarche and full term pregnancy
+```{r}
+final_data$interval_menarche_firstbirth <- final_data$age_fftp -
+  final_data$age_menarche
+final_data$interval_menarche_firstbirth_cat <- categorize_interval_menarche_fftp(
+  final_data$interval_menarche_firstbirth
+)
+
+```
+
+## Categories for number of induced abortions (Not present)
+```{r}
+final_data$totalabortion_cat <- categorize_count_at_two(final_data$totalabortion)
+```
+
+## Categories for number of spontaneous abortions (Not present)
+```{r}
+final_data$totalmiscarriage_cat <- categorize_count_at_two(final_data$totalmiscarriage)
+```
+
+## Categories for duration of breastfeeding
+```{r}
+final_data$mean_brfeed_duration <- ifelse(
+  !is.na(final_data$fulltermpreg_cat) & final_data$fulltermpreg_cat > 0,
+  final_data$breast_mos / final_data$fulltermpreg_cat,
+  NA_real_
+)
+final_data$mean_brfeed_duration_cat <- categorize_brfeed(final_data$mean_brfeed_duration)
+```
+
+## Categories for duration of diabetes
+```{r}
+final_data$diabetic_years_cat <- categorize_diabetes(
+  final_data$diabetes_duration, final_data$diabetes_yn
+)
+```
+
+```{r}
+# family_history_of_beo
+final_data$family_history_of_beo <- as.integer(
+  final_data$f_his_fst_bc == 1 |
+  final_data$f_his_fst_oc == 1 |
+  final_data$ca_end_yn == 1
+)
+```
+
+
+```{r}
+#############
+final_data$Avg_Height = ifelse(is.na(final_data$height_1), final_data$height_2, 
+                                ifelse(is.na(final_data$height_2), final_data$height_1, 
+                                       0.5 * (final_data$height_1 + final_data$height_2)))
+
+final_data$catht <- categorize_height(final_data$Avg_Height)
+
+
+###############
+final_data$ratio <- categorize_whr(final_data$waist_to_hip_ratio)
+
+################
+final_data$case_site = as.factor(final_data$case_site)
+
+################
+# final_data$residancefirsttwentyyears[!(final_data$residancefirsttwentyyears %in% c(1, 2))] <- NA
+
+################
+final_data$oc_ever[!(final_data$oc_ever %in% c(1, 0))] <- NA
+
+#################
+final_data$education_self <- ifelse(final_data$education_self > 4, 2, 1)
+
+#################
+final_data$catmenopause = final_data$mens_age_last
+final_data$catmenopause[final_data$mens_age_last <= 40] = 0
+final_data$catmenopause[final_data$mens_age_last > 40 & 
+                        final_data$mens_age_last <= 45] = 1
+final_data$catmenopause[final_data$mens_age_last > 45 & 
+                        final_data$mens_age_last <= 50] = 2
+final_data$catmenopause[final_data$mens_age_last > 50] = 3
+
+##################
+final_data$bmicat <- categorize_bmi(final_data$bmi)
+
+####################
+final_data$ageatfirstfulltermpreg = final_data$age_fftp
+###################
+
+final_data$case_site <- relevel(factor(final_data$case_site), ref = "Control")
+
+# final_data$ratio_cat <- ifelse(
+#   is.na(final_data$ratio),
+#   "Missing",
+#   as.character(final_data$ratio)
+# )
+
+#final_data$ratio <- factor(final_data$ratio_cat) 
+```
+
+```{r}
+final_data$alcohol_yn[final_data$alcohol_yn == 2] <- 0
+####################################################
+# Harmonized with training (breast_cancer_risk_model.Rmd line 495 area): exclude breast
+# cancer cases whose breast-lump history dates within the last 3 years
+# (likely a presenting symptom of the cancer, not an independent risk factor).
+case_ids <- final_data$id[final_data$case_site == "Breast Ca."]
+case_pmh <- data_new_PMH_jan26[data_new_PMH_jan26$ID %in% case_ids, ]
+
+# Step 3: Keep only cases with br_lump_age <= 3 years (and not missing)
+pmh_with_young_lump <- case_pmh[
+    !is.na(case_pmh$br_lump_age) & case_pmh$Age - case_pmh$br_lump_age <= 3,
+]
+
+# Step 4: Number of unique such breast cancer cases
+num_people <- length(unique(pmh_with_young_lump$ID))
+cat("Number of 'Breast Cancer' cases with br_lump_age <= 3 year:", num_people, "\n")
+
+# Step 5: See their details
+result_details <- pmh_with_young_lump[, c("ID", "Age", "br_lump_age")]
+print(result_details)
+
+# Get IDs to remove
+ids_to_remove <- unique(pmh_with_young_lump$ID)
+
+# Remove these IDs from 'final_data'
+final_data <- final_data[!final_data$id %in% ids_to_remove, ]
+#########################################################
+
+# Create timing variable
+final_data$tobacco_chewing_timing <- ifelse(
+  final_data$tobacco_chewing_yn == 0 | is.na(final_data$tobacco_chewing_yn),
+  0,
+  ifelse(
+    !is.na(final_data$tobacco_chewing_age) & !is.na(final_data$ageatfirstfulltermpreg) & 
+      final_data$tobacco_chewing_age < final_data$ageatfirstfulltermpreg,
+    1,
+    2
+  )
+)
+
+# Replace tobacco_chewing_yn with the timing variable (as factor)
+final_data$tobacco_chewing_yn <- as.factor(final_data$tobacco_chewing_timing)
+
+# Remove the intermediate variable
+final_data$tobacco_chewing_timing <- NULL
+
+final_data <- final_data[, !names(final_data) %in% c("ageatfirstfulltermpreg", "tobacco_chewing_age", "tobacco_chewing_timing")]
+```
+
+## Validation and calibration
+```{r}
+validation_predictors_premeno <- c(
+  "Age", "meno_stat", "bmicat", "ratio", "residancefirsttwentyyears",
+  "ageatfirstfulltermpreg_cat", "catht", "totalmiscarriage_cat",
+  "br_lump_yn", "tobacco_chewing_yn", "case_site"
+)
+
+validation_predictors_postmeno <- c(
+  "Age", "meno_stat", "bmicat", "ratio", "residancefirsttwentyyears",
+  "fulltermpreg_cat", "catht", "totalmiscarriage_cat",
+  "br_lump_yn", "tobacco_chewing_yn", "case_site"
+)
+
+prepare_validation_data <- function(validation_source, meno_code, vars, label) {
+  missing_vars <- setdiff(vars, names(validation_source))
+  if (length(missing_vars) > 0) {
+    stop(label, " validation data is missing variables: ", paste(missing_vars, collapse = ", "))
+  }
+
+  validation_data <- validation_source[which(validation_source$meno_stat == meno_code), vars, drop = FALSE]
+  missing_before <- colSums(is.na(validation_data))
+
+  # Impute the model covariates only -- never impute case_site (the validation
+  # outcome) or the structural columns (Age, id, meno_stat).
+  impute_cov <- intersect(c(
+    "bmicat", "ratio", "residancefirsttwentyyears",
+    "ageatfirstfulltermpreg_cat", "fulltermpreg_cat",
+    "catht", "totalmiscarriage_cat", "br_lump_yn", "tobacco_chewing_yn"
+  ), names(validation_data))
+
+  # Validation imputation does NOT use case/control status -- it wouldn't be
+  # available at prediction time. Within one meno_code subset all rows share
+  # the same meno_stat, so this collapses to a single-stratum hot deck.
+  validation_data <- impute_joint_hotdeck_grouped(
+    validation_data,
+    covariates      = impute_cov,
+    group_vars      = c("meno_stat"),
+    continuous_vars = c("Age"),
+    nearest_donors  = 5,
+    m               = 5,
+    seed            = 20260529 + meno_code,
+    verbose         = FALSE
+  )
+
+  missing_after <- colSums(is.na(validation_data))
+  print(data.frame(
+    variable = names(missing_after),
+    missing_before = as.integer(missing_before[names(missing_after)]),
+    missing_after = as.integer(missing_after),
+    row.names = NULL
+  ))
+
+  validation_data
+}
+
+test_data_premeno_res <- prepare_validation_data(
+  final_data, meno_code = 1, vars = validation_predictors_premeno,
+  label = "Premenopausal"
+)
+
+test_data_postmeno_res <- prepare_validation_data(
+  final_data, meno_code = 2, vars = validation_predictors_postmeno,
+  label = "Postmenopausal"
+)
+
+cat("Premenopausal validation observations:", nrow(test_data_premeno_res), "\n")
+cat("Postmenopausal validation observations:", nrow(test_data_postmeno_res), "\n")
+```
+
+## Validation metrics
+```{r}
+make_case_bin <- function(x) {
+  x <- as.character(x)
+  ifelse(x %in% c("Case", "Breast Ca.", "Breast Cancer Case", "1", 1), 1, 0)
+}
+
+get_auc_from_risk <- function(risk, label) {
+  risk_cases <- risk[label == 1]
+  risk_controls <- risk[label == 0]
+
+  if (length(risk_cases) == 0 || length(risk_controls) == 0) {
+    return(NA_real_)
+  }
+
+  as.numeric(mean(outer(
+    risk_cases, risk_controls,
+    FUN = function(x, y) (x > y) + 0.5 * (x == y)
+  )))
+}
+
+build_validation_results <- function(model, validation_data, num_deciles = 10) {
+  lp <- predict(model, newdata = validation_data, type = "link")
+  p_pred <- plogis(lp)
+  case <- make_case_bin(validation_data$case_site)
+
+  validation_results <- data.frame(p_pred = p_pred, case = case) |> na.omit()
+  validation_results$decile <- ntile(validation_results$p_pred, num_deciles)
+  validation_results$label <- factor(
+    ifelse(validation_results$case == 1, "Case", "Control"),
+    levels = c("Control", "Case")
+  )
+
+  auc <- get_auc_from_risk(validation_results$p_pred, validation_results$case)
+  overall_observed_rate <- mean(validation_results$case)
+  mean_predicted_probability <- mean(validation_results$p_pred)
+
+  calibration_table <- validation_results |>
+    group_by(decile) |>
+    summarise(
+      mean_pred_p = mean(p_pred),
+      obs_rate = mean(case),
+      n = n(),
+      n_cases = sum(case),
+      .groups = "drop"
+    ) |>
+    mutate(
+      obs_se = sqrt(obs_rate * (1 - obs_rate) / n),
+      obs_rate_lwr = pmax(obs_rate - 1.96 * obs_se, 0),
+      obs_rate_upr = pmin(obs_rate + 1.96 * obs_se, 1),
+      observed_rr = obs_rate / overall_observed_rate,
+      observed_rr_lwr = obs_rate_lwr / overall_observed_rate,
+      observed_rr_upr = obs_rate_upr / overall_observed_rate,
+      predicted_rr = mean_pred_p / mean_predicted_probability
+    )
+
+  list(
+    predictions = validation_results,
+    calibration = calibration_table,
+    auc = auc
+  )
+}
+
+plot_discrimination <- function(validation_results, title, auc) {
+  ggplot(validation_results, aes(x = p_pred, color = label, fill = label)) +
+    geom_density(alpha = 0.25) +
+    theme_bw() +
+    labs(
+      title = sprintf("%s\nAUC = %.3f", title, auc),
+      x = "Predicted probability",
+      y = "Density",
+      color = "Group",
+      fill = "Group"
+    )
+}
+
+plot_calibration <- function(calibration_table, title, auc, color, rr_range) {
+  ggplot(calibration_table, aes(x = predicted_rr, y = observed_rr, label = decile)) +
+    geom_point(size = 3, color = color) +
+    geom_errorbar(aes(ymin = observed_rr_lwr, ymax = observed_rr_upr),
+                  width = 0.03, color = color) +
+    geom_text(nudge_y = 0.07, size = 3) +
+    geom_abline(intercept = 0, slope = 1, lty = 2) +
+    coord_equal(xlim = rr_range, ylim = rr_range) +
+    theme_bw() +
+    labs(
+      title = sprintf("%s\nAUC = %.3f", title, auc),
+      x = "Mean predicted relative risk",
+      y = "Observed relative risk"
+    )
+}
+
+validation_premeno <- build_validation_results(model_premeno, test_data_premeno_res)
+validation_postmeno <- build_validation_results(model_postmeno, test_data_postmeno_res)
+
+df_pre <- validation_premeno$predictions
+tab_pre <- validation_premeno$calibration
+auc_pre <- validation_premeno$auc
+
+df_post <- validation_postmeno$predictions
+tab_post <- validation_postmeno$calibration
+auc_post <- validation_postmeno$auc
+
+cat(sprintf("PREMENOPAUSAL TEST SET probability-based AUC: %.4f\n", auc_pre))
+cat(sprintf("POSTMENOPAUSAL TEST SET probability-based AUC: %.4f\n", auc_post))
+
+print(tab_pre)
+print(tab_post)
+
+rr_range <- range(
+  tab_pre$predicted_rr, tab_pre$observed_rr, tab_pre$observed_rr_lwr, tab_pre$observed_rr_upr,
+  tab_post$predicted_rr, tab_post$observed_rr, tab_post$observed_rr_lwr, tab_post$observed_rr_upr,
+  na.rm = TRUE
+)
+rr_range <- c(floor(rr_range[1] * 10) / 10, ceiling(rr_range[2] * 10) / 10)
+
+print(plot_discrimination(df_pre, "Discrimination plot (Premenopausal)", auc_pre))
+print(plot_discrimination(df_post, "Discrimination plot (Postmenopausal)", auc_post))
+print(plot_calibration(tab_pre, "Calibration plot (Premenopausal, RR, 95% CI)", auc_pre, "blue", rr_range))
+print(plot_calibration(tab_post, "Calibration plot (Postmenopausal, RR, 95% CI)", auc_post, "red", rr_range))
+```

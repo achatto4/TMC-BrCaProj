@@ -1,4 +1,30 @@
-.Rproj.user
+# --- Data: never commit real / patient data ---
+*.xlsx
+*.xls
+*.dta
+*.csv
+*.rds
+*.RData
+*.rda
+data/
+Data/
+
+# --- R / RStudio state ---
+.Rproj.user/
 .Rhistory
 .RData
 .Ruserdata
+*.Rproj
+
+# --- Rendered / temporary outputs ---
+*.log
+/figure/
+cache/
+*_cache/
+*_files/
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+*~
+.vscode/
