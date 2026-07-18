@@ -837,6 +837,76 @@ summary(model_postmeno)
 
 ```
 
+## Diagnostic: BMI by waist-to-hip interaction support
+```{r}
+# Read-only diagnostic for the BMI x WHR interaction. This does not change the
+# fitted models used downstream; reduced models are fit only for the LRT below.
+diagnose_bmi_ratio_interaction <- function(data_stratum, model_full, stratum_label) {
+  cat("\n==============================\n")
+  cat(stratum_label, "BMI x WHR diagnostic\n")
+  cat("==============================\n\n")
+  
+  cat("Cell counts: table(bmicat, ratio, case)\n")
+  cell_counts <- table(
+    bmicat = data_stratum$bmicat,
+    ratio  = data_stratum$ratio,
+    case   = data_stratum$br
+  )
+  print(cell_counts)
+  
+  sparse_cells <- which(cell_counts < 10, arr.ind = TRUE)
+  if (nrow(sparse_cells) > 0) {
+    sparse_report <- data.frame(
+      bmicat = dimnames(cell_counts)$bmicat[sparse_cells[, "bmicat"]],
+      ratio  = dimnames(cell_counts)$ratio[sparse_cells[, "ratio"]],
+      case   = dimnames(cell_counts)$case[sparse_cells[, "case"]],
+      n      = as.integer(cell_counts[sparse_cells]),
+      row.names = NULL
+    )
+    cat("\nCells with n < 10 (case/control support warning):\n")
+    print(sparse_report)
+  } else {
+    cat("\nNo BMI x WHR x case cells with n < 10.\n")
+  }
+  
+  cat("\nBMI/ratio coefficient table (estimate, SE, z, p):\n")
+  coef_table <- summary(model_full)$coefficients
+  print(coef_table[grep("bmicat|ratio", rownames(coef_table)), , drop = FALSE])
+  
+  model_reduced <- update(
+    model_full,
+    . ~ . - as.factor(bmicat):as.factor(ratio)
+  )
+  lrt <- anova(model_reduced, model_full, test = "LRT")
+  cat("\nLikelihood-ratio test for BMI x WHR interaction:\n")
+  print(lrt)
+  
+  p_col <- grep("Pr\\(", names(lrt), value = TRUE)
+  lrt_p <- if (length(p_col) > 0) lrt[[p_col[1]]][2] else NA_real_
+  cat(sprintf("\n%s BMI x WHR LRT p-value: %.6g\n", stratum_label, lrt_p))
+  
+  invisible(list(
+    cell_counts = cell_counts,
+    sparse_cells = if (exists("sparse_report")) sparse_report else NULL,
+    coefficient_table = coef_table[grep("bmicat|ratio", rownames(coef_table)), , drop = FALSE],
+    lrt = lrt,
+    lrt_p = lrt_p
+  ))
+}
+
+bmi_ratio_diag_premeno <- diagnose_bmi_ratio_interaction(
+  data_stratum = data_premeno,
+  model_full = model_premeno,
+  stratum_label = "Premenopausal"
+)
+
+bmi_ratio_diag_postmeno <- diagnose_bmi_ratio_interaction(
+  data_stratum = data_postmeno,
+  model_full = model_postmeno,
+  stratum_label = "Postmenopausal"
+)
+```
+
 # Absolute risk prediction using iCARE
 
 ##################################################################NEW_REFERENCE_DATA##############################################################################
